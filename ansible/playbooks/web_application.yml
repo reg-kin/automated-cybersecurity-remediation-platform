@@ -1,0 +1,7 @@
+---
+- name: Regis remediation - web_application
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - role: web_application

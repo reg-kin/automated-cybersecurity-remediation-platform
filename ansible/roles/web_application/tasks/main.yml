@@ -1,0 +1,22 @@
+---
+- name: Validate web remediation action
+  ansible.builtin.assert:
+    that:
+      - "remediation_action in ['set_config_line','remove_exposed_file','manual_escalation']"
+- name: Reject manual escalation from automated playbook
+  ansible.builtin.fail:
+    msg: Application-code vulnerability requires engineering review/manual remediation.
+  when: remediation_action == 'manual_escalation'
+- name: Set web server/application configuration line
+  ansible.builtin.lineinfile:
+    path: "{{ config_file }}"
+    regexp: "{{ config_regexp | default(omit) }}"
+    line: "{{ config_line }}"
+    backup: true
+  when: remediation_action == 'set_config_line'
+  notify: restart web service
+- name: Remove exposed file
+  ansible.builtin.file:
+    path: "{{ path }}"
+    state: absent
+  when: remediation_action == 'remove_exposed_file'

@@ -1,0 +1,34 @@
+---
+- name: Validate container remediation action
+  ansible.builtin.assert:
+    that:
+      - "remediation_action in ['update_image','upgrade_dependency','set_dockerfile_line','set_iac_line','manual_escalation']"
+- name: Reject manual escalation from automated playbook
+  ansible.builtin.fail:
+    msg: Container finding requires manual/source-pipeline remediation.
+  when: remediation_action == 'manual_escalation'
+- name: Pull updated container image
+  community.docker.docker_image:
+    name: "{{ image_name }}"
+    source: pull
+    force_source: true
+  when: remediation_action == 'update_image'
+- name: Upgrade dependency using package manager command supplied by trusted rule
+  ansible.builtin.command:
+    cmd: "{{ dependency_update_command }}"
+    chdir: "{{ project_path }}"
+  when: remediation_action == 'upgrade_dependency' and dependency_update_command is defined
+- name: Set Dockerfile line
+  ansible.builtin.lineinfile:
+    path: "{{ dockerfile_path }}"
+    regexp: "{{ line_regexp | default(omit) }}"
+    line: "{{ line }}"
+    backup: true
+  when: remediation_action == 'set_dockerfile_line'
+- name: Set IaC line
+  ansible.builtin.lineinfile:
+    path: "{{ file_path }}"
+    regexp: "{{ line_regexp | default(omit) }}"
+    line: "{{ line }}"
+    backup: true
+  when: remediation_action == 'set_iac_line'

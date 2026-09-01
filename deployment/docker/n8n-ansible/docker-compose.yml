@@ -1,0 +1,54 @@
+version: "3.8"
+
+volumes:
+  n8n_data:
+    external: true
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: always
+    ports:
+      - "127.0.0.1:5678:5678"
+    env_file:
+      - .env
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - cyber-network
+    environment:
+      - N8N_HOST=n8n.example.com
+      - WEBHOOK_URL=https://n8n.example.com/
+      - N8N_EDITOR_BASE_URL=https://n8n.example.com/
+      - N8N_PUSH_BACKEND=websocket
+      - N8N_PROXY_HOPS=1
+      - NODES_EXCLUDE=[]  # Enable the Execute Command Node
+    
+  ansible-runner:
+    build: ../../../ansible-runner
+    container_name: ansible-runner
+    ports:
+      - "127.0.0.1:8081:8080"
+    user: "root" # Run container processes as root
+    cap_add:
+      - NET_ADMIN  # Grants permission to modify iptables/firewall rules
+    environment:
+      - REGIS_ANSIBLE_PLAYBOOK_DIR=/etc/ansible/playbooks
+      - ANSIBLE_ROLES_PATH=/etc/ansible/roles
+      - REGIS_ALLOWED_PLAYBOOKS=controller_positive_test.yml,os_patching.yml,container_image.yml,cis_hardening.yml,service_config.yml,web_application.yml,file_integrity.yml,security_incident.yml,controller_test.yml
+      - REGIS_ANSIBLE_RUNNER_TOKEN=${REGIS_ANSIBLE_RUNNER_TOKEN}
+      - REGIS_ANSIBLE_LISTENER_HOST=0.0.0.0
+      - REGIS_ANSIBLE_LISTENER_PORT="8080"
+      - REGIS_ANSIBLE_TIMEOUT=1800
+    restart: always
+    volumes:
+      - ../../../ansible:/etc/ansible
+      - /root/.ssh:/root/.ssh:ro
+    networks:
+      - cyber-network
+
+networks:
+  cyber-network:
+    external: true
+    name: portal-network

@@ -1,0 +1,17 @@
+---
+- name: Test remediation controller to Ansible communication
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Create test file
+      ansible.builtin.copy:
+        dest: /tmp/regis-controller-test.txt
+        content: "{{ test_value | default('regis-controller-test') }}\n"
+        mode: '0600'
+    - name: Verify test file exists
+      ansible.builtin.stat:
+        path: /tmp/regis-controller-test.txt
+      register: regis_test_stat
+    - name: Stage 1 verification
+      ansible.builtin.assert:
+        that: [regis_test_stat.stat.exists]

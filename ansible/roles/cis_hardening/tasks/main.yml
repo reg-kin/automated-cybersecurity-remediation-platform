@@ -1,0 +1,39 @@
+---
+- name: Validate control type
+  ansible.builtin.assert:
+    that:
+      - control_type is defined
+      - "control_type in ['line','sysctl','file_permission','disable_service','enable_service']"
+- name: Apply config line
+  ansible.builtin.lineinfile:
+    path: "{{ config_file }}"
+    regexp: "{{ config_regexp | default(omit) }}"
+    line: "{{ config_line }}"
+    backup: true
+  when: control_type == 'line'
+- name: Apply sysctl
+  ansible.posix.sysctl:
+    name: "{{ sysctl_name }}"
+    value: "{{ sysctl_value | string }}"
+    state: present
+    reload: true
+  when: control_type == 'sysctl'
+- name: Enforce file permissions
+  ansible.builtin.file:
+    path: "{{ path }}"
+    mode: "{{ mode | default(omit) }}"
+    owner: "{{ owner | default(omit) }}"
+    group: "{{ group | default(omit) }}"
+  when: control_type == 'file_permission'
+- name: Disable service
+  ansible.builtin.service:
+    name: "{{ service_name }}"
+    state: stopped
+    enabled: false
+  when: control_type == 'disable_service'
+- name: Enable service
+  ansible.builtin.service:
+    name: "{{ service_name }}"
+    state: started
+    enabled: true
+  when: control_type == 'enable_service'

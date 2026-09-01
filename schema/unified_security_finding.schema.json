@@ -1,0 +1,195 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UnifiedSecurityFinding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "tenant_code",
+    "tenant_service_tier",
+    "target_host",
+    "engine_source",
+    "finding_category",
+    "finding_class",
+    "finding_key",
+    "finding_title",
+    "lifecycle_status"
+  ],
+  "properties": {
+    "tenant_code": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_service_tier": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "engine_source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "finding_category": {
+      "type": "string",
+      "enum": [
+        "vulnerability",
+        "compliance_drift",
+        "integrity_drift",
+        "rootkit"
+      ]
+    },
+    "finding_class": {
+      "type": "string",
+      "enum": [
+        "cve",
+        "package_vulnerability",
+        "kernel_vulnerability",
+        "unsupported_software",
+        "missing_security_update",
+        "network_service_vulnerability",
+        "network_service_exposure",
+        "weak_cryptography",
+        "insecure_protocol",
+        "service_misconfiguration",
+        "default_credentials",
+        "authentication_weakness",
+        "certificate_issue",
+        "cis_control",
+        "lynis_hardening",
+        "security_configuration",
+        "service_configuration",
+        "authentication_configuration",
+        "access_control_configuration",
+        "logging_configuration",
+        "filesystem_configuration",
+        "network_configuration",
+        "web_application_vulnerability",
+        "web_misconfiguration",
+        "exposed_sensitive_information",
+        "exposed_service",
+        "security_header_missing",
+        "tls_configuration",
+        "injection_vulnerability",
+        "xss_vulnerability",
+        "ssrf_vulnerability",
+        "path_traversal",
+        "file_exposure",
+        "misconfigured_cloud_service",
+        "container_image_vulnerability",
+        "container_dependency_vulnerability",
+        "container_misconfiguration",
+        "container_secret_exposure",
+        "container_license_issue",
+        "dockerfile_misconfiguration",
+        "iac_misconfiguration",
+        "file_integrity_change",
+        "rootkit_detection"
+      ]
+    },
+    "finding_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "finding_title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lifecycle_status": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "IN_REMEDIATION",
+        "RESOLVED",
+        "FALSE_POSITIVE"
+      ],
+      "default": "OPEN"
+    },
+    "detected_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "remediated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_verified_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "compliance_result": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_APPLICABLE",
+        null
+      ]
+    },
+    "severity_level": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "CRITICAL",
+        "HIGH",
+        "MEDIUM",
+        "LOW",
+        null
+      ]
+    },
+    "severity_score": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 10
+    },
+    "engine_metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ai_analysis": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "risk_summary",
+        "business_context_impact",
+        "confidence_score",
+        "analyzed_at"
+      ],
+      "properties": {
+        "risk_summary": {
+          "type": "string"
+        },
+        "business_context_impact": {
+          "type": "string"
+        },
+        "confidence_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "analyzed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

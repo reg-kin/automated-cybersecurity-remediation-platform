@@ -1,0 +1,26 @@
+[Unit]
+Description=Regis Security Deferred Stage 2 Verification Reconciler
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+EnvironmentFile=/etc/regis-controller.env
+Environment=PYTHONPATH=/opt/regis-security
+
+WorkingDirectory=/opt/regis-security
+
+ExecStart=/opt/regis-security/venv/bin/python /opt/regis-security/remediation/deferred_reconciler.py --loop
+
+Restart=on-failure
+RestartSec=10
+
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

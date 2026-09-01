@@ -1,0 +1,101 @@
+{
+  "OpenVAS": [
+    "cve",
+    "network_service_vulnerability",
+    "network_service_exposure",
+    "weak_cryptography",
+    "insecure_protocol",
+    "service_misconfiguration",
+    "default_credentials",
+    "authentication_weakness",
+    "certificate_issue",
+    "unsupported_software"
+  ],
+  "Nmap_NSE": [
+    "cve",
+    "network_service_vulnerability",
+    "network_service_exposure",
+    "weak_cryptography",
+    "insecure_protocol",
+    "service_misconfiguration",
+    "default_credentials",
+    "authentication_weakness",
+    "certificate_issue",
+    "unsupported_software",
+    "web_application_vulnerability",
+    "web_misconfiguration",
+    "exposed_sensitive_information",
+    "exposed_service",
+    "security_header_missing",
+    "tls_configuration",
+    "injection_vulnerability",
+    "xss_vulnerability",
+    "ssrf_vulnerability",
+    "path_traversal",
+    "file_exposure",
+    "misconfigured_cloud_service"
+  ],
+  "Wazuh_Vulnerability": [
+    "cve",
+    "package_vulnerability",
+    "kernel_vulnerability",
+    "unsupported_software",
+    "missing_security_update"
+  ],
+  "Wazuh_SCA": [
+    "cis_control",
+    "security_configuration",
+    "service_configuration",
+    "authentication_configuration",
+    "access_control_configuration",
+    "logging_configuration",
+    "filesystem_configuration",
+    "network_configuration"
+  ],
+  "Lynis": [
+    "lynis_hardening",
+    "security_configuration",
+    "service_configuration",
+    "authentication_configuration",
+    "access_control_configuration",
+    "logging_configuration",
+    "filesystem_configuration",
+    "network_configuration"
+  ],
+  "Nuclei": [
+    "web_application_vulnerability",
+    "web_misconfiguration",
+    "exposed_sensitive_information",
+    "exposed_service",
+    "security_header_missing",
+    "tls_configuration",
+    "injection_vulnerability",
+    "xss_vulnerability",
+    "ssrf_vulnerability",
+    "path_traversal",
+    "file_exposure",
+    "misconfigured_cloud_service"
+  ],
+  "Trivy": [
+    "container_image_vulnerability",
+    "container_dependency_vulnerability",
+    "container_misconfiguration",
+    "container_secret_exposure",
+    "container_license_issue",
+    "dockerfile_misconfiguration",
+    "iac_misconfiguration"
+  ],
+  "Snyk": [
+    "container_image_vulnerability",
+    "container_dependency_vulnerability",
+    "container_secret_exposure",
+    "container_license_issue",
+    "cve"
+  ],
+  "Wazuh_FIM": [
+    "file_integrity_change"
+  ],
+  "Wazuh_Rootcheck": [
+    "rootkit_detection"
+  ]
+}

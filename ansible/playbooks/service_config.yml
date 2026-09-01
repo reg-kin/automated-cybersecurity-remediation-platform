@@ -1,0 +1,7 @@
+---
+- name: Regis remediation - service_config
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - role: service_config

@@ -1,0 +1,21 @@
+---
+- name: Regis approval-gated remediation test
+  hosts: all
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Confirm approved remediation execution started
+      ansible.builtin.debug:
+        msg: >-
+          Test 9 approved remediation execution for
+          finding {{ finding_id | default('unknown') }},
+          execution {{ execution_id | default('unknown') }}
+
+    - name: Deliberately fail Stage 1 after approval
+      ansible.builtin.assert:
+        that:
+          - false
+        fail_msg: >-
+          Intentional Stage 1 failure for Test 9
+          after approval gate was released

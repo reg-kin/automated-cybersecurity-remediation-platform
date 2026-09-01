@@ -1,0 +1,15 @@
+[Unit]
+Description=Regis Security Ollama Log Enrichment Worker (VPS Ingestion)
+After=network.target redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/regis-security/worker
+# Updated flag to match your local RQ binary version specification requirements
+ExecStart=/usr/bin/rq worker ai-enrichment --path /opt/regis-security/worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

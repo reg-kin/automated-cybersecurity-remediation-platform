@@ -1,0 +1,15 @@
+[Unit]
+Description=Regis Security Scanner Refresh Control Worker
+After=network.target redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/regis-security/worker
+ExecStart=/usr/bin/rq worker scanner-control --path /opt/regis-security
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

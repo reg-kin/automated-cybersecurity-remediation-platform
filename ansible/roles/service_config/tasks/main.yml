@@ -1,0 +1,47 @@
+---
+- name: Validate action
+  ansible.builtin.assert:
+    that:
+      - "remediation_action in ['set_config_line','patch_service_package','restrict_port','deploy_certificate','manual_escalation']"
+- name: Reject manual escalation from automated playbook
+  ansible.builtin.fail:
+    msg: Manual escalation cannot be executed automatically.
+  when: remediation_action == 'manual_escalation'
+- name: Patch service package
+  ansible.builtin.package:
+    name: "{{ package_name }}"
+    state: latest
+  when: remediation_action == 'patch_service_package'
+- name: Set service configuration line
+  ansible.builtin.lineinfile:
+    path: "{{ config_file }}"
+    regexp: "{{ config_regexp | default(omit) }}"
+    line: "{{ config_line }}"
+    backup: true
+  when: remediation_action == 'set_config_line'
+  notify: restart service
+- name: Restrict port with UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ port | string }}"
+    proto: "{{ protocol | default('tcp') }}"
+    src: "{{ source_cidr | default('127.0.0.1/32') }}"
+  when: remediation_action == 'restrict_port'
+- name: Deploy certificate
+  ansible.builtin.copy:
+    src: "{{ certificate_src }}"
+    dest: "{{ certificate_dest }}"
+    mode: '0644'
+  when: remediation_action == 'deploy_certificate'
+  notify: restart service
+- name: Deploy private key
+  ansible.builtin.copy:
+    src: "{{ private_key_src }}"
+    dest: "{{ private_key_dest }}"
+    mode: '0600'
+  when: remediation_action == 'deploy_certificate' and private_key_src is defined and private_key_dest is defined
+  notify: restart service
+- name: Stage 1 verify configuration line
+  ansible.builtin.command: "grep -F -- {{ config_line | quote }} {{ config_file | quote }}"
+  changed_when: false
+  when: remediation_action == 'set_config_line'

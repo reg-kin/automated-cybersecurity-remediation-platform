@@ -1,0 +1,6 @@
+---
+- name: restart service
+  ansible.builtin.service:
+    name: "{{ service_name }}"
+    state: restarted
+  when: service_name is defined and service_name | length > 0

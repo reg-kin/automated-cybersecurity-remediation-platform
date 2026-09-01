@@ -1,0 +1,26 @@
+---
+- name: Validate incident action
+  ansible.builtin.assert:
+    that:
+      - "remediation_action in ['isolate_host','stop_service','quarantine_file','manual_escalation']"
+- name: Reject manual escalation from automated playbook
+  ansible.builtin.fail:
+    msg: Rootkit/incident requires manual investigation unless a specific approved containment action is supplied.
+  when: remediation_action == 'manual_escalation'
+- name: Stop suspicious service
+  ansible.builtin.service:
+    name: "{{ service_name }}"
+    state: stopped
+  when: remediation_action == 'stop_service'
+- name: Quarantine file
+  ansible.builtin.command: "mv -- {{ path | quote }} {{ quarantine_path | quote }}"
+  args:
+    creates: "{{ quarantine_path }}"
+    removes: "{{ path }}"
+  when: remediation_action == 'quarantine_file'
+- name: Isolate host using UFW default deny incoming/outgoing
+  community.general.ufw:
+    direction: "{{ item }}"
+    policy: deny
+  loop: [incoming, outgoing]
+  when: remediation_action == 'isolate_host'

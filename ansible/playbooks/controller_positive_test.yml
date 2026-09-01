@@ -1,0 +1,38 @@
+---
+- name: Regis positive end-to-end remediation test
+  hosts: all
+  gather_facts: false
+  become: false
+
+  vars:
+    marker_file: "/tmp/regis-stage2-positive/regis-marker.txt"
+
+  tasks:
+
+    - name: Confirm marker exists before remediation
+      ansible.builtin.stat:
+        path: "{{ marker_file }}"
+      register: marker_before
+
+    - name: Assert marker exists before remediation
+      ansible.builtin.assert:
+        that:
+          - marker_before.stat.exists
+        fail_msg: "Positive-path marker did not exist before remediation."
+
+    - name: Remove positive-path marker
+      ansible.builtin.file:
+        path: "{{ marker_file }}"
+        state: absent
+
+    - name: Check marker after remediation
+      ansible.builtin.stat:
+        path: "{{ marker_file }}"
+      register: marker_after
+
+    - name: Stage 1 verification
+      ansible.builtin.assert:
+        that:
+          - not marker_after.stat.exists
+        fail_msg: "Stage 1 failed: marker still exists."
+        success_msg: "Stage 1 passed: marker has been removed."

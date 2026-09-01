@@ -1,0 +1,23 @@
+---
+- name: Regis duplicate remediation protection test
+  hosts: all
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Confirm controlled duplicate test has started
+      ansible.builtin.debug:
+        msg: >-
+          Controlled duplicate-remediation test for
+          finding {{ finding_id | default('unknown') }},
+          execution {{ execution_id | default('unknown') }}
+
+    - name: Keep Stage 1 running to create duplicate-request window
+      ansible.builtin.pause:
+        seconds: 180
+
+    - name: Deliberately fail Stage 1 after duplicate-request window
+      ansible.builtin.assert:
+        that:
+          - false
+        fail_msg: "Intentional Stage 1 failure after Test 7 duplicate-request window"

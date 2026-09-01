@@ -1,0 +1,29 @@
+---
+- name: Validate action
+  ansible.builtin.assert:
+    that:
+      - "remediation_action in ['restore_file','enforce_metadata']"
+- name: Restore file from trusted backup
+  ansible.builtin.copy:
+    src: "{{ backup_path }}"
+    dest: "{{ path }}"
+    remote_src: true
+    owner: "{{ owner | default(omit) }}"
+    group: "{{ group | default(omit) }}"
+    mode: "{{ mode | default(omit) }}"
+    backup: true
+  when: remediation_action == 'restore_file'
+- name: Enforce metadata
+  ansible.builtin.file:
+    path: "{{ path }}"
+    owner: "{{ owner | default(omit) }}"
+    group: "{{ group | default(omit) }}"
+    mode: "{{ mode | default(omit) }}"
+  when: remediation_action == 'enforce_metadata'
+- name: Stage 1 verify file exists
+  ansible.builtin.stat:
+    path: "{{ path }}"
+  register: target_file
+- name: Assert file exists
+  ansible.builtin.assert:
+    that: [target_file.stat.exists]

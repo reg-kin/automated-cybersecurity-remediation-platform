@@ -1,0 +1,27 @@
+[Unit]
+Description=Regis Security Remediation Controller API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+WorkingDirectory=/opt/regis-security
+
+EnvironmentFile=/etc/regis-controller.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/regis-security
+
+ExecStart=/opt/regis-security/venv/bin/python -m remediation.controller_api
+
+Restart=on-failure
+RestartSec=5
+
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

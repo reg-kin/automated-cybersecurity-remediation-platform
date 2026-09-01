@@ -1,0 +1,49 @@
+---
+- name: Validate action
+  ansible.builtin.assert:
+    that:
+      - "remediation_action in ['patch_package','upgrade_package','security_updates','kernel_update','remove_package']"
+- name: Validate package action parameter
+  ansible.builtin.assert:
+    that: [package_name is defined, package_name | length > 0]
+  when: remediation_action in ['patch_package','upgrade_package','remove_package']
+- name: Patch or upgrade requested package
+  ansible.builtin.package:
+    name: "{{ package_name }}"
+    state: latest
+  when: remediation_action in ['patch_package','upgrade_package']
+- name: Remove requested package
+  ansible.builtin.package:
+    name: "{{ package_name }}"
+    state: absent
+  when: remediation_action == 'remove_package'
+- name: Debian security/all updates
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+  when: remediation_action == 'security_updates' and ansible_facts.os_family == 'Debian'
+- name: RedHat updates
+  ansible.builtin.dnf:
+    name: '*'
+    state: latest
+    update_only: true
+  when: remediation_action == 'security_updates' and ansible_facts.os_family == 'RedHat'
+- name: Debian kernel update
+  ansible.builtin.apt:
+    name: [linux-generic, linux-image-generic, linux-headers-generic]
+    state: latest
+    update_cache: true
+  when: remediation_action == 'kernel_update' and ansible_facts.os_family == 'Debian'
+- name: RedHat kernel update
+  ansible.builtin.dnf:
+    name: kernel
+    state: latest
+  when: remediation_action == 'kernel_update' and ansible_facts.os_family == 'RedHat'
+- name: Stage 1 package presence/version
+  ansible.builtin.package_facts:
+    manager: auto
+  when: remediation_action in ['patch_package','upgrade_package']
+- name: Assert patched package exists
+  ansible.builtin.assert:
+    that: [package_name in ansible_facts.packages]
+  when: remediation_action in ['patch_package','upgrade_package']

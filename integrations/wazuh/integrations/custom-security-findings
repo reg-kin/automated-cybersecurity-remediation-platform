@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+
+import sys
+import json
+import logging
+
+from rq import Queue
+from redis import Redis
+
+
+LOG_FILE = "/var/ossec/logs/integrations.log"
+
+REDIS_HOST = "127.0.0.1"
+REDIS_PORT = 6379
+
+FINDING_QUEUE = "ai-enrichment"
+CONTROL_QUEUE = "scanner-control"
+
+REFRESH_EVENT_TYPE = "scanner_refresh_complete"
+
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s: %(message)s",
+)
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(
+            "Wazuh integration script requires "
+            "the alert file path argument."
+        )
+        sys.exit(1)
+
+    alert_file_path = sys.argv[1]
+
+    try:
+        with open(alert_file_path, "r", encoding="utf-8") as f:
+            alert_data = json.load(f)
+
+    except Exception as exc:
+        logging.error(
+            "Failed to read Wazuh alert file: %s",
+            exc,
+        )
+        sys.exit(1)
+
+    rule_id = (
+        alert_data.get("rule", {})
+        .get("id")
+    )
+
+    full_log = alert_data.get(
+        "full_log",
+        {},
+    )
+
+    data_field = alert_data.get(
+        "data",
+        {},
+    )
+
+    #
+    # Wazuh-decoded scanner payloads are carried in "data".
+    # Fall back to full_log or the complete alert when necessary.
+    #
+    payload = (
+        data_field
+        if data_field
+        else full_log
+    )
+
+    if not payload:
+        payload = alert_data
+
+    #
+    # full_log may occasionally remain a JSON string rather than a
+    # decoded object. Parse it when possible so event_type routing
+    # remains deterministic.
+    #
+    if isinstance(payload, str):
+        try:
+            decoded = json.loads(payload)
+
+            if isinstance(decoded, dict):
+                payload = decoded
+
+        except json.JSONDecodeError:
+            pass
+
+    event_type = ""
+
+    if isinstance(payload, dict):
+        event_type = str(
+            payload.get("event_type")
+            or ""
+        ).strip().lower()
+
+    #
+    # Control-plane refresh completion events must bypass the
+    # Ollama finding backlog.
+    #
+    if event_type == REFRESH_EVENT_TYPE:
+        queue_name = CONTROL_QUEUE
+    else:
+        queue_name = FINDING_QUEUE
+
+    try:
+        redis_conn = Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+        )
+
+        queue = Queue(
+            queue_name,
+            connection=redis_conn,
+        )
+
+        job = queue.enqueue(
+            "worker.process_ai_enrichment",
+            payload,
+        )
+
+        logging.info(
+            "Successfully enqueued alert triggered by Rule ID %s "
+            "to Redis queue '%s' job_id=%s event_type=%s",
+            rule_id,
+            queue_name,
+            job.id,
+            event_type or "finding",
+        )
+
+    except Exception as exc:
+        logging.error(
+            "Failed to connect to Redis or enqueue payload: %s",
+            exc,
+        )
+        sys.exit(1)
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

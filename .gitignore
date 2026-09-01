@@ -1,0 +1,55 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+config.json
+api_keys.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Backups / temporary files
+*.sav
+*.old
+*.bak
+*.pre-*
+*.dump
+*.tmp
+*~
+
+# Runtime scanner output
+scan_results.*
+*.gnmap
+*.nmap
+
+# Logs
+*.log
+logs/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Test/runtime artefacts
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Deployment environment files
+/etc/regis-controller.env
+/etc/regis-verification.env
+deployment/systemd/env/*.env
+!deployment/systemd/env/*.env.example
+
+# Docker deployment environment
+deployment/docker/**/.env
+!deployment/docker/**/.env.example
