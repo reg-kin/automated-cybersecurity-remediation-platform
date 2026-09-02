@@ -12,6 +12,9 @@ The format is based on Keep a Changelog, and this project uses Semantic Versioni
 
 ### Fixed
 
+- Restored the implemented OpenVAS/GVMD scanner orchestrator that was
+  inadvertently omitted from the v0.1.0 repository contents.
+
 ### Security
 
 ## [0.1.0] - 2026-09-02
