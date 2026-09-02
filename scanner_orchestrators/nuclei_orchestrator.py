@@ -129,6 +129,8 @@ from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
+from common.runtime import utc_now
+
 
 # ============================================================================
 # CONFIGURATION
@@ -303,12 +305,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
 
 def normalize_service_tier(
     value: Any,

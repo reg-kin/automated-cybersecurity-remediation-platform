@@ -124,6 +124,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import urllib3
 
+from common.runtime import utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -253,12 +254,6 @@ urllib3.disable_warnings(
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
 
 
 def normalize_service_tier(

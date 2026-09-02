@@ -117,6 +117,7 @@ import xml.etree.ElementTree as ET
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from common.runtime import utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -271,12 +272,6 @@ logger = setup_logging(False)
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
 
 def normalize_service_tier(
     value: str,

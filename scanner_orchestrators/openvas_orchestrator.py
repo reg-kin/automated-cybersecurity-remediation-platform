@@ -136,6 +136,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from gvm.connections import UnixSocketConnection
 from gvm.protocols.gmp import Gmp
 
+from common.runtime import utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -398,13 +399,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
 
 def clean_text(
     value: Any,

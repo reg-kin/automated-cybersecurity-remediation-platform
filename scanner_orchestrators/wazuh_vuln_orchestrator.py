@@ -107,6 +107,8 @@ import uuid
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from common.runtime import utc_now
+
 import requests
 import urllib3
 
@@ -290,16 +292,6 @@ urllib3.disable_warnings(
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-    """
-    Return the current UTC time as an ISO-8601 timestamp.
-    """
-
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
 
 def get_session() -> requests.Session:
     """

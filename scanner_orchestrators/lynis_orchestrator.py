@@ -114,6 +114,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
 
+from common.runtime import utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -275,16 +276,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-    """
-    Return current UTC timestamp as ISO-8601.
-    """
-
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
 
 def normalize_service_tier(
     value: str,

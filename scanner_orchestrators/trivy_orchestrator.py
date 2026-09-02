@@ -134,6 +134,7 @@ from typing import (
     Tuple,
 )
 
+from common.runtime import utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -290,16 +291,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-    """
-    Return current UTC timestamp in ISO-8601 format.
-    """
-
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
 
 def normalize_service_tier(
     raw_tier: str,
