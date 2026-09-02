@@ -1,6 +1,6 @@
-# Regis Security Automated Remediation Platform
+# Automated Cybersecurity Remediation Platform
 
-Regis Security Automated Remediation Platform is an open-source security
+Automated Cybersecurity Remediation Platform is an open-source security
 automation platform for detecting, contextualising, routing, remediating and
 verifying security findings across vulnerability, configuration and compliance
 tooling.
@@ -78,8 +78,9 @@ AI does not decide the remediation route. Scanner orchestrators determine the
 finding class, and PostgreSQL remediation rules deterministically select the
 remediation capability and action.
 
-Core Design Principles
-Unified findings
+1. Core Design Principles:
+
+- Unified findings
 
 Scanner-specific output is normalised into a Unified Security Finding before
 entering the main remediation pipeline.
@@ -87,7 +88,7 @@ entering the main remediation pipeline.
 The schema provides a common contract across supported security engines while
 retaining source-specific evidence in engine_metadata.
 
-Deterministic remediation
+- Deterministic remediation
 
 Remediation routing is controlled by PostgreSQL remediation rules.
 
@@ -95,7 +96,7 @@ Ollama enriches findings with risk context but does not determine
 finding_class, select a remediation capability or choose an Ansible
 playbook.
 
-Independent verification
+- Independent verification
 
 Successful execution does not automatically mean successful remediation.
 
@@ -103,12 +104,13 @@ The platform implements two verification stages:
 
 Stage 1 — local/Ansible verification that the remediation action was
 executed successfully.
+
 Stage 2 — independent verification using the originating security
 scanner where supported.
 
 For scanner-backed findings, Stage 2 is authoritative.
 
-Finding Categories
+2. Finding Categories
 
 The Unified Security Finding supports four primary categories:
 
@@ -117,12 +119,12 @@ compliance_drift
 integrity_drift
 rootkit
 
-The platform defines a controlled catalogue of 43 finding classes.
+3. The platform defines a controlled catalogue of 43 finding classes.
 
-The canonical catalogue is maintained in the database seed and Unified
-Security Finding schema.
+The canonical catalogue is maintained in the database seed and Unified Security Finding schema.
 
-Scanner Orchestrators
+Scanner Orchestrators: 
+
 | Security engine               | Status      | Notes                                        |
 | ----------------------------- | ----------- | -------------------------------------------- |
 | OpenVAS                       | Implemented | Vulnerability scanning                       |
@@ -134,20 +136,20 @@ Scanner Orchestrators
 | Wazuh Vulnerability Detection | Implemented | Runs with local/private Wazuh Indexer access |
 
 
-Planned
+Planned:
+
 | Security engine                 | Status                           |
 | ------------------------------- | -------------------------------- |
 | Wazuh File Integrity Monitoring | Orchestrator not yet implemented |
 | Wazuh Rootcheck                 | Orchestrator not yet implemented |
 
 
-Out of scope
+Out of scope: Snyk is not used by the current platform implementation.
 
-Snyk is not used by the current platform implementation.
-
-Seven Remediation Capabilities
+4. Seven Remediation Capabilities
 
 The remediation layer is divided into seven stable capabilities:
+
 | Capability          | Purpose                                            |
 | ------------------- | -------------------------------------------------- |
 | `os_patching`       | Operating-system/package vulnerability remediation |
@@ -165,7 +167,7 @@ Ansible remediation implementation and coordinating verification.
 A capability being present does not mean that every possible scanner
 integration feeding that capability has already been implemented.
 
-AI Risk Contextualisation
+5. AI Risk Contextualisation
 
 Ollama is used for risk contextualisation.
 
@@ -182,26 +184,18 @@ analyzed_at
 AI output cannot independently select a remediation capability or bypass
 approval and verification controls.
 
-Wazuh Asynchronous Verification
+6. Wazuh Asynchronous Verification
 
 Wazuh SCA and Wazuh Vulnerability Detection require a different Stage 2 model
 because their authoritative state is produced through asynchronous scanner
 refreshes rather than targeted synchronous rescans.
 
-The platform therefore separates:
-
-Unified Security Finding
-
-from:
-
-scanner_refresh_complete
-
-control events.
+The platform therefore separates Unified Security Finding from scanner_refresh_complete control events.
 
 A refresh completion is not a security finding and is not sent through AI
 risk enrichment.
 
-Refresh evidence
+a) Refresh evidence
 
 The asynchronous verification implementation uses:
 
@@ -217,8 +211,10 @@ that refresh have been received.
 This prevents a completion event from being interpreted as authoritative before
 all corresponding findings have been processed.
 
-Authoritative absence
+b) Authoritative absence
+
 For an eligible complete scanner refresh:
+
 finding present
     -> Stage 2 FAILED
     -> execution FAILED
@@ -235,13 +231,11 @@ rather than assuming success.
 See the project documentation for the detailed asynchronous Wazuh verification
 model.
 
-Wazuh Integration
+7. Wazuh Integration
 
-Custom Wazuh rules are provided under:
+Custom Wazuh rules are provided under integrations/wazuh/rules/
 
-integrations/wazuh/rules/
-
-The current Regis rule chain uses rules 100500 through 100507.
+The current rule chain uses rules 100500 through 100507.
 
 Scanner refresh completion events are routed separately from ordinary findings:
 
@@ -251,16 +245,15 @@ normal security finding
 scanner_refresh_complete
     -> scanner-control
 
-An example Wazuh integration configuration is provided under:
+An example Wazuh integration configuration is provided under: integrations/wazuh/examples/
 
-integrations/wazuh/examples/
-
-Wazuh Vulnerability Deployment
+8. Wazuh Vulnerability Deployment
 
 The Wazuh vulnerability orchestrator is intended to run on a trusted system
 with local or private access to the Wazuh Indexer.
 
 A typical deployment is:
+
 Wazuh Manager
     |
     +-- wazuh_vuln_orchestrator.py
@@ -273,38 +266,31 @@ Public Internet exposure of the Wazuh Indexer API is not required.
 Credentials must be supplied through local environment/configuration and must
 never be committed to the repository.
 
-n8n and Ansible Runner
+9. n8n and Ansible Runner
 
 The reference deployment runs n8n and the Ansible Runner listener from the
 same Docker Compose project.
 
-Both attach to the external Docker network:
-
-portal-network
+Both attach to the external Docker network: portal-network
 
 The reference deployment exposes:
 
 n8n             127.0.0.1:5678
 Ansible Runner  127.0.0.1:8081
 
-The remediation controller communicates with the Ansible Runner listener over
-its local endpoint.
+The remediation controller communicates with the Ansible Runner listener over its local endpoint.
 
-The Compose definition is available under:
+The Compose definition is available under: deployment/docker/n8n-ansible/
 
-deployment/docker/n8n-ansible/
-
-Create the external network before starting the stack if it does not already
-exist:
+Create the external network before starting the stack if it does not already exist:
 
 docker network create portal-network
 
-Copy .env.example to a local .env and configure the required values before
-starting the services.
+Copy .env.example to a local .env and configure the required values before starting the services.
 
 Production .env files must not be committed.
 
-Database
+10. Database
 
 PostgreSQL stores:
 
@@ -321,7 +307,7 @@ deferred verification jobs.
 The database installation is defined through version-controlled schema,
 seed and migration files rather than a dump of the production database.
 
-Installation order
+11. Installation order
 
 Apply the database files in the following order:
 database/001_schema.sql
@@ -335,9 +321,10 @@ database/010_harden_remediation_routing.sql
 The schema has been validated by constructing a clean PostgreSQL validation
 database from the repository SQL.
 
-Remediation Lifecycle
+12. Remediation Lifecycle
 
 A typical finding progresses through:
+
 OPEN
   |
   v
@@ -382,7 +369,7 @@ operational workflow integration.
 The n8n workflow layer remains an area requiring additional validation before
 the platform is considered production-ready.
 
-Repository Structure
+13. Repository Structure
 
 ansible/
     playbooks/
@@ -425,12 +412,12 @@ verification/
 
 worker/
 
-Configuration and Secrets
+14. Configuration and Secrets
 
 Never commit production credentials.
 
-Configuration examples use placeholder values such as:
-CHANGE_ME
+Configuration examples use placeholder values such as CHANGE_ME
+
 Sensitive configuration includes:
 
 PostgreSQL passwords;
@@ -444,6 +431,7 @@ n8n secrets.
 
 Environment-specific files should be created locally from the provided
 examples.
+
 Security Considerations
 
 This project performs privileged security remediation and should be deployed
@@ -466,10 +454,11 @@ secured.
 
 See SECURITY.md.
 
-Testing
+15. Testing
 
 The repository contains consistency checks and validation assets under:
 tests/
+
 Before publishing or deploying changes:
 
 compile all Python source;
@@ -484,7 +473,7 @@ The asynchronous Wazuh SCA path has been validated through a live remediation
 cycle including Stage 1 remediation, fresh scanner refresh, immutable receipt
 collection, watermark promotion and authoritative Stage 2 resolution.
 
-Current Limitations
+16. Current Limitations
 
 The project remains pre-production.
 
@@ -503,14 +492,14 @@ formal installation, upgrade and recovery testing.
 
 See Project Status for the current maturity statement.
 
-Contributing
+17. Contributing
 
 See CONTRIBUTING.md.
 
 Security vulnerabilities should be reported according to
 SECURITY.md, not through public GitHub issues.
 
-Licence
+18. Licence
 
 Licensed under the Apache License, Version 2.0.
 
