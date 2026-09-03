@@ -129,6 +129,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
+from common.finding import build_unified_finding
 from common.runtime import normalize_service_tier, utc_now
 from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
@@ -1548,59 +1549,21 @@ def normalize_finding(
         )
     }
 
-    payload = {
-        "tenant_code":
-            tenant_code,
-
-        "tenant_service_tier":
-            service_tier,
-
-        "target_host":
-            target_host,
-
-        "engine_source":
-            "nuclei",
-
-        "finding_category":
-            "vulnerability",
-
-        "finding_class":
-            finding_class,
-
-        "finding_key":
-            finding_key,
-
-        "finding_title":
-            title,
-
-        "lifecycle_status":
-            "OPEN",
-
-        "detected_at":
-            utc_now(),
-
-        "remediated_at":
-            None,
-
-        "last_verified_at":
-            None,
-
-        "compliance_result":
-            None,
-
-        "severity_level":
-            severity_level,
-
-        "severity_score":
-            severity_score,
-
-        "engine_metadata":
-            metadata,
-
-        # Ollama runs after the scanner orchestrator.
-        "ai_analysis":
-            None,
-    }
+    payload = build_unified_finding(
+        tenant_code=tenant_code,
+        tenant_service_tier=service_tier,
+        target_host=target_host,
+        engine_source="nuclei",
+        finding_category="vulnerability",
+        finding_class=finding_class,
+        finding_key=finding_key,
+        finding_title=title,
+        detected_at=utc_now(),
+        compliance_result=None,
+        severity_level=severity_level,
+        severity_score=severity_score,
+        engine_metadata=metadata,
+    )
 
     validate_unified_finding(
         payload
