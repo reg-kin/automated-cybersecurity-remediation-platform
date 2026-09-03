@@ -114,7 +114,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
 
-from common.runtime import utc_now
+from common.runtime import normalize_service_tier, utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -161,12 +161,6 @@ DEFAULT_TASK_NAME = os.getenv(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_LYNIS_CLASSES = {
     "lynis_hardening",
@@ -276,29 +270,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def normalize_service_tier(
-    value: str,
-) -> str:
-    """
-    Normalise customer service tier.
-    """
-
-    tier = str(
-        value or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; using STANDARD.",
-            value,
-        )
-
-        return "STANDARD"
-
-    return tier
-
 
 def normalize_filter_mode(
     value: Optional[str],
@@ -1105,7 +1076,8 @@ def run_scan_mode(
         )
 
     service_tier = normalize_service_tier(
-        service_tier
+        service_tier,
+        logger,
     )
 
     filter_mode = normalize_filter_mode(

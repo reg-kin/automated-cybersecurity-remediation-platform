@@ -117,7 +117,7 @@ import xml.etree.ElementTree as ET
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from common.runtime import utc_now
+from common.runtime import normalize_service_tier, utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -156,12 +156,6 @@ NMAP_TIMEOUT = int(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_FINDING_CLASSES = {
     "cve",
@@ -272,26 +266,6 @@ logger = setup_logging(False)
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def normalize_service_tier(
-    value: str,
-) -> str:
-
-    tier = str(
-        value or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; using STANDARD.",
-            value,
-        )
-
-        return "STANDARD"
-
-    return tier
-
 
 def clean_text(
     value: Any,
@@ -1339,7 +1313,8 @@ def run_scan_mode(
 ) -> int:
 
     service_tier = normalize_service_tier(
-        service_tier
+        service_tier,
+        logger,
     )
 
     logger.info(

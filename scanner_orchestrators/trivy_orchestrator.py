@@ -134,7 +134,7 @@ from typing import (
     Tuple,
 )
 
-from common.runtime import utc_now
+from common.runtime import normalize_service_tier, utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -182,12 +182,6 @@ VALID_SCANNERS = {
 VALID_SCAN_TYPES = {
     "image",
     "folder",
-}
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
 }
 
 VALID_SEVERITIES = {
@@ -291,29 +285,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def normalize_service_tier(
-    raw_tier: str,
-) -> str:
-    """
-    Normalise service tier to the canonical values.
-    """
-
-    tier = str(
-        raw_tier or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; using STANDARD.",
-            raw_tier,
-        )
-
-        return "STANDARD"
-
-    return tier
-
 
 def normalize_severity_level(
     raw_severity: Any,
@@ -2210,7 +2181,8 @@ def run_scan_mode(
         )
 
     service_tier = normalize_service_tier(
-        service_tier
+        service_tier,
+        logger,
     )
 
     target = str(

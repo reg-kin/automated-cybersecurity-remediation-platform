@@ -129,8 +129,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
-from common.runtime import utc_now
-
+from common.runtime import normalize_service_tier, utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -177,12 +176,6 @@ DEFAULT_SEVERITIES = os.getenv(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_NUCLEI_CLASSES = {
     "web_application_vulnerability",
@@ -305,26 +298,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def normalize_service_tier(
-    value: Any,
-) -> str:
-
-    tier = str(
-        value or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; defaulting to STANDARD.",
-            value,
-        )
-
-        return "STANDARD"
-
-    return tier
-
 
 def first_non_empty(
     *values: Any,
@@ -1991,7 +1964,8 @@ def run_scan_mode(
         )
 
     service_tier = normalize_service_tier(
-        service_tier
+        service_tier,
+        logger,
     )
 
     task_name = clean_string(

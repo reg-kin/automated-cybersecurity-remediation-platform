@@ -107,7 +107,7 @@ import uuid
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from common.runtime import utc_now
+from common.runtime import normalize_service_tier, utc_now
 
 import requests
 import urllib3
@@ -173,12 +173,6 @@ SCROLL_TTL = os.getenv(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_SEVERITIES = {
     "CRITICAL",
@@ -372,26 +366,6 @@ def load_credentials():
         "REGIS_WAZUH_INDEXER_PASSWORD, or provide a valid "
         "local credentials file."
     )
-
-
-def normalize_service_tier(
-    value: str,
-) -> str:
-
-    tier = str(
-        value or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; using STANDARD.",
-            value,
-        )
-
-        return "STANDARD"
-
-    return tier
 
 
 def normalize_severity_level(
@@ -1810,7 +1784,8 @@ def run_scan_mode(
         )
 
     service_tier = normalize_service_tier(
-        service_tier
+        service_tier,
+        logger,
     )
 
     agent_id = str(

@@ -124,7 +124,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import urllib3
 
-from common.runtime import utc_now
+from common.runtime import normalize_service_tier, utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -161,12 +161,6 @@ REQUEST_TIMEOUT = int(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 WAZUH_SCA_FINDING_CLASSES = {
     "cis_control",
@@ -254,26 +248,6 @@ urllib3.disable_warnings(
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-
-def normalize_service_tier(
-    raw_tier: str,
-) -> str:
-
-    tier = str(
-        raw_tier or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; using STANDARD.",
-            raw_tier,
-        )
-
-        return "STANDARD"
-
-    return tier
 
 
 def normalize_status(
@@ -1676,7 +1650,8 @@ def process_agent(
 ) -> int:
 
     tier = normalize_service_tier(
-        tier
+        tier,
+        logger,
     )
 
     refresh_id = str(uuid.uuid4())

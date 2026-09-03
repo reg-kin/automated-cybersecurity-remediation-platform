@@ -136,7 +136,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from gvm.connections import UnixSocketConnection
 from gvm.protocols.gmp import Gmp
 
-from common.runtime import utc_now
+from common.runtime import VALID_SERVICE_TIERS, utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -223,12 +223,6 @@ VERIFY_CALLBACK_SUPPRESSION_SECONDS = int(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_OPENVAS_FINDING_CLASSES = {
     "cve",
