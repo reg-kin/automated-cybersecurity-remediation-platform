@@ -1,0 +1,20 @@
+{
+  "template-id": "reflected-xss",
+  "template-path": "/opt/nuclei-templates/http/vulnerabilities/generic/reflected-xss.yaml",
+  "info": {
+    "name": "Reflected Cross-Site Scripting",
+    "author": ["regression-test"],
+    "tags": ["xss", "web"],
+    "description": "Reflected cross-site scripting vulnerability",
+    "severity": "high",
+    "classification": {
+      "cve-id": []
+    }
+  },
+  "type": "http",
+  "host": "https://example.test",
+  "matched-at": "https://example.test/search?q=test",
+  "matcher-name": "xss-reflection",
+  "ip": "192.0.2.10",
+  "timestamp": "2026-09-03T12:00:00Z"
+}
