@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap">
+  <host>
+    <status state="up"/>
+    <address addr="192.0.2.20" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="445">
+        <state state="open"/>
+        <service
+          name="microsoft-ds"
+          product="Microsoft Windows SMB"
+          version="1"
+        />
+        <script
+          id="smb-vuln-ms17-010"
+          output="VULNERABLE: Microsoft SMB remote code execution vulnerability CVE-2017-0143 HIGH"
+        />
+      </port>
+    </ports>
+  </host>
+</nmaprun>
