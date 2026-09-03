@@ -1,0 +1,2 @@
+# Synthetic Lynis report fixture for regression testing
+warning[]=AUTH-9282|Configure password aging and authentication policy|hardening
