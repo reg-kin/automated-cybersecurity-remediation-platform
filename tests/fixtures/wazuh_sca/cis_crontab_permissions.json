@@ -1,0 +1,27 @@
+{
+  "agent_identity": {
+    "target_host": "192.0.2.40",
+    "agent_name": "ubuntu24-test",
+    "agent_ip": "192.0.2.40"
+  },
+  "policy": {
+    "policy_id": "cis_ubuntu24-04",
+    "name": "CIS Ubuntu Linux 24.04 LTS Benchmark",
+    "description": "Center for Internet Security benchmark for Ubuntu Linux 24.04 LTS"
+  },
+  "check": {
+    "id": 35594,
+    "title": "Ensure permissions on /etc/crontab are configured",
+    "description": "The /etc/crontab file contains instructions for system cron jobs.",
+    "rationale": "Incorrect permissions could allow unauthorized users to modify scheduled system jobs.",
+    "remediation": "Run chmod 600 /etc/crontab and ensure the file is owned by root:root.",
+    "result": "failed",
+    "file": "/etc/crontab",
+    "compliance": [
+      {
+        "key": "cis",
+        "value": "4.1.2.1"
+      }
+    ]
+  }
+}
