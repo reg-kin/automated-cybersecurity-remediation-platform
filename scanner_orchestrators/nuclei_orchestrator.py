@@ -130,6 +130,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 from common.runtime import normalize_service_tier, utc_now
+from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
 # ============================================================================
 # CONFIGURATION
@@ -1323,19 +1324,7 @@ def validate_unified_finding(
     payload: Dict[str, Any],
 ) -> None:
 
-    required = (
-        "tenant_code",
-        "tenant_service_tier",
-        "target_host",
-        "engine_source",
-        "finding_category",
-        "finding_class",
-        "finding_key",
-        "finding_title",
-        "lifecycle_status",
-    )
-
-    for field in required:
+    for field in REQUIRED_UNIFIED_FINDING_FIELDS:
 
         if payload.get(
             field

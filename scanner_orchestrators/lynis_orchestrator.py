@@ -115,6 +115,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
 
 from common.runtime import normalize_service_tier, utc_now
+from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
 # ============================================================================
 # CONFIGURATION
@@ -840,19 +841,7 @@ def validate_unified_finding(
     Validate the part of UnifiedSecurityFinding owned by Lynis.
     """
 
-    required = (
-        "tenant_code",
-        "tenant_service_tier",
-        "target_host",
-        "engine_source",
-        "finding_category",
-        "finding_class",
-        "finding_key",
-        "finding_title",
-        "lifecycle_status",
-    )
-
-    for field in required:
+    for field in REQUIRED_UNIFIED_FINDING_FIELDS:
 
         if payload.get(field) in (
             None,

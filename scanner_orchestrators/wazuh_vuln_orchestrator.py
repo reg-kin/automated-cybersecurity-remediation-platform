@@ -108,6 +108,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from common.runtime import normalize_service_tier, utc_now
+from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
 import requests
 import urllib3
@@ -1092,19 +1093,7 @@ def validate_unified_finding(
     The enrichment worker and PostgreSQL provide additional validation.
     """
 
-    required = (
-        "tenant_code",
-        "tenant_service_tier",
-        "target_host",
-        "engine_source",
-        "finding_category",
-        "finding_class",
-        "finding_key",
-        "finding_title",
-        "lifecycle_status",
-    )
-
-    for field in required:
+    for field in REQUIRED_UNIFIED_FINDING_FIELDS:
 
         if payload.get(
             field
