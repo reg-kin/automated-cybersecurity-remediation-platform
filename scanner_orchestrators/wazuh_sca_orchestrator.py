@@ -124,6 +124,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import urllib3
 
+from common.finding import build_unified_finding
 from common.runtime import normalize_service_tier, utc_now
 from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
@@ -1518,60 +1519,21 @@ def build_finding(
         )
     }
 
-    payload = {
-        "tenant_code":
-            tenant,
-
-        "tenant_service_tier":
-            tier,
-
-        "target_host":
-            agent_identity[
-                "target_host"
-            ],
-
-        "engine_source":
-            "wazuh_sca",
-
-        "finding_category":
-            "compliance_drift",
-
-        "finding_class":
-            finding_class,
-
-        "finding_key":
-            finding_key,
-
-        "finding_title":
-            title,
-
-        "lifecycle_status":
-            "OPEN",
-
-        "detected_at":
-            utc_now(),
-
-        "remediated_at":
-            None,
-
-        "last_verified_at":
-            None,
-
-        "compliance_result":
-            compliance_result,
-
-        "severity_level":
-            None,
-
-        "severity_score":
-            None,
-
-        "engine_metadata":
-            metadata,
-
-        "ai_analysis":
-            None,
-    }
+    payload = build_unified_finding(
+        tenant_code=tenant,
+        tenant_service_tier=tier,
+        target_host=agent_identity["target_host"],
+        engine_source="wazuh_sca",
+        finding_category="compliance_drift",
+        finding_class=finding_class,
+        finding_key=finding_key,
+        finding_title=title,
+        detected_at=utc_now(),
+        compliance_result=compliance_result,
+        severity_level=None,
+        severity_score=None,
+        engine_metadata=metadata,
+    )
 
     validate_payload(
         payload
