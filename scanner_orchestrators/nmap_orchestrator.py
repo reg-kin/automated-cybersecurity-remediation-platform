@@ -117,6 +117,7 @@ import xml.etree.ElementTree as ET
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from common.finding import build_unified_finding
 from common.runtime import normalize_service_tier, utc_now
 
 # ============================================================================
@@ -1236,58 +1237,21 @@ def normalize_results(
                     f"Nmap NSE {script_id}"
                 )
 
-            payload = {
-                "tenant_code":
-                    tenant_code,
-
-                "tenant_service_tier":
-                    service_tier,
-
-                "target_host":
-                    target_host,
-
-                "engine_source":
-                    "nmap_nse",
-
-                "finding_category":
-                    "vulnerability",
-
-                "finding_class":
-                    finding_class,
-
-                "finding_key":
-                    finding_key,
-
-                "finding_title":
-                    finding_title,
-
-                "lifecycle_status":
-                    "OPEN",
-
-                "detected_at":
-                    utc_now(),
-
-                "remediated_at":
-                    None,
-
-                "last_verified_at":
-                    None,
-
-                "compliance_result":
-                    None,
-
-                "severity_level":
-                    severity_level,
-
-                "severity_score":
-                    severity_score,
-
-                "engine_metadata":
-                    metadata,
-
-                "ai_analysis":
-                    None,
-            }
+            payload = build_unified_finding(
+                tenant_code=tenant_code,
+                tenant_service_tier=service_tier,
+                target_host=target_host,
+                engine_source="nmap_nse",
+                finding_category="vulnerability",
+                finding_class=finding_class,
+                finding_key=finding_key,
+                finding_title=finding_title,
+                detected_at=utc_now(),
+                compliance_result=None,
+                severity_level=severity_level,
+                severity_score=severity_score,
+                engine_metadata=metadata,
+            )
 
             findings.append(
                 payload
