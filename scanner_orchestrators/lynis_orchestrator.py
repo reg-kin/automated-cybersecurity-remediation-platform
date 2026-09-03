@@ -114,6 +114,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
 
+from common.finding import build_unified_finding as build_common_unified_finding
 from common.runtime import normalize_service_tier, utc_now
 from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
@@ -938,89 +939,53 @@ def build_unified_finding(
         description,
     )
 
-    payload = {
-        "tenant_code":
-            tenant_code,
+    metadata = {
+        "task_name":
+            task_name,
 
-        "tenant_service_tier":
-            service_tier,
-
-        "target_host":
-            target_host,
-
-        "engine_source":
-            ENGINE_SOURCE,
-
-        "finding_category":
-            FINDING_CATEGORY,
-
-        "finding_class":
-            finding_class,
-
-        "finding_key":
+        # This is the scanner-native stable identifier and is useful
+        # both for remediation rules and Stage 2 evidence.
+        "lynis_test_id":
             finding_id,
 
-        "finding_title":
-            (
-                f"Lynis "
-                f"{finding_type.capitalize()} "
-                f"({finding_id})"
+        "finding_type":
+            finding_type,
+
+        "description":
+            description,
+
+        "additional_fields":
+            parsed.get(
+                "additional_fields",
+                [],
             ),
 
-        "lifecycle_status":
-            "OPEN",
-
-        "detected_at":
-            utc_now(),
-
-        "remediated_at":
-            None,
-
-        "last_verified_at":
-            None,
-
-        "compliance_result":
-            "FAIL",
-
-        # Lynis recommendations are not CVSS-scored vulnerabilities.
-        "severity_level":
-            None,
-
-        "severity_score":
-            None,
-
-        "engine_metadata": {
-            "task_name":
-                task_name,
-
-            # This is the scanner-native stable identifier and is useful
-            # both for remediation rules and Stage 2 evidence.
-            "lynis_test_id":
-                finding_id,
-
-            "finding_type":
-                finding_type,
-
-            "description":
-                description,
-
-            "additional_fields":
-                parsed.get(
-                    "additional_fields",
-                    [],
-                ),
-
-            "raw_record":
-                parsed.get(
-                    "raw_record",
-                    "",
-                ),
-        },
-
-        # The scanner comes before the Ollama enrichment worker.
-        "ai_analysis":
-            None,
+        "raw_record":
+            parsed.get(
+                "raw_record",
+                "",
+            ),
     }
+
+    payload = build_common_unified_finding(
+        tenant_code=tenant_code,
+        tenant_service_tier=service_tier,
+        target_host=target_host,
+        engine_source=ENGINE_SOURCE,
+        finding_category=FINDING_CATEGORY,
+        finding_class=finding_class,
+        finding_key=finding_id,
+        finding_title=(
+            f"Lynis "
+            f"{finding_type.capitalize()} "
+            f"({finding_id})"
+        ),
+        detected_at=utc_now(),
+        compliance_result="FAIL",
+        severity_level=None,
+        severity_score=None,
+        engine_metadata=metadata,
+    )
 
     validate_unified_finding(
         payload
