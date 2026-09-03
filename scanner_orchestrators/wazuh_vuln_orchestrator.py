@@ -107,6 +107,7 @@ import uuid
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from common.finding import build_unified_finding
 from common.runtime import normalize_service_tier, utc_now
 from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
@@ -1601,60 +1602,21 @@ def normalize_hit(
             f"{title[:160]}"
         )
 
-    payload = {
-        "tenant_code":
-            tenant_code,
-
-        "tenant_service_tier":
-            service_tier,
-
-        "target_host":
-            target_host,
-
-        # Canonical scanner identity.
-        "engine_source":
-            "wazuh_vulnerability",
-
-        "finding_category":
-            "vulnerability",
-
-        "finding_class":
-            finding_class,
-
-        "finding_key":
-            finding_key,
-
-        "finding_title":
-            finding_title,
-
-        "lifecycle_status":
-            "OPEN",
-
-        "detected_at":
-            utc_now(),
-
-        "remediated_at":
-            None,
-
-        "last_verified_at":
-            None,
-
-        "compliance_result":
-            None,
-
-        "severity_level":
-            severity_level,
-
-        "severity_score":
-            severity_score,
-
-        "engine_metadata":
-            metadata,
-
-        # Ollama enrichment occurs AFTER scanner ingestion.
-        "ai_analysis":
-            None,
-    }
+    payload = build_unified_finding(
+        tenant_code=tenant_code,
+        tenant_service_tier=service_tier,
+        target_host=target_host,
+        engine_source="wazuh_vulnerability",
+        finding_category="vulnerability",
+        finding_class=finding_class,
+        finding_key=finding_key,
+        finding_title=finding_title,
+        detected_at=utc_now(),
+        compliance_result=None,
+        severity_level=severity_level,
+        severity_score=severity_score,
+        engine_metadata=metadata,
+    )
 
     validate_unified_finding(
         payload
