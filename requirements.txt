@@ -1,7 +1,7 @@
 flask==3.0.3
 requests==2.32.3
 psycopg2-binary==2.9.9
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 jsonschema==4.23.0
 python-gvm==27.7.0
 redis==4.3.4
