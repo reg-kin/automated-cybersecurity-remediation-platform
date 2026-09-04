@@ -6,11 +6,12 @@ Runs:
 - n8n
 - controller API on `127.0.0.1:9000`
 - seven controller modules behind that API
-- Ansible Runner webhook on `127.0.0.1:8080`
+- Ansible Runner host endpoint on `127.0.0.1:8081`
+  (mapped to container port `8080`)
 
 Communication:
 
-`n8n -> :9000/remediate -> controller -> :8080/run`
+`n8n -> :9000/remediate -> controller -> :8081/run`
 
 ## Scanner/orchestrator machine
 
@@ -31,7 +32,8 @@ The controller records this in `remediation_verifications` with `stage=1`.
 
 The controller sends the original scanner identity and finding key to the verification gateway.
 The original scanner orchestrator runs in verification mode.
-Only `present=false` results in `RESOLVED`.
+Only `verification_status=PASSED` together with `present=false`
+results in `RESOLVED`.
 
 ## Safety model
 
@@ -42,4 +44,5 @@ There is no separate safety-rule table.
 - `required_parameters`
 - `enabled`
 
-TIER_2/TIER_3 rules can remain behind n8n approval/human-intervention branches.
+Rules with `approval_required=true` remain behind the approval/human-intervention
+gate. TIER_3 remediation rules must require approval.

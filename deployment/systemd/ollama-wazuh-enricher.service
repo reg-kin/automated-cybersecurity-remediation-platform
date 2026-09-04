@@ -6,8 +6,7 @@ After=network.target redis-server.service
 Type=simple
 User=root
 WorkingDirectory=/opt/regis-security/worker
-# Updated flag to match your local RQ binary version specification requirements
-ExecStart=/usr/bin/rq worker ai-enrichment --path /opt/regis-security/worker
+ExecStart=/usr/bin/rq worker ai-enrichment --path /opt/regis-security
 Restart=always
 RestartSec=5
 

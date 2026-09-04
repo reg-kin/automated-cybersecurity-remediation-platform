@@ -352,7 +352,10 @@ def cancel_execution(execution_id):
 
 if __name__ == "__main__":
     app.run(
-        host="127.0.0.1",
+        host=os.getenv(
+            "REGIS_CONTROLLER_HOST",
+            "127.0.0.1",
+        ),
         port=int(
             os.getenv(
                 "REGIS_CONTROLLER_PORT",
