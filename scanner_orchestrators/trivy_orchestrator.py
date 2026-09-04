@@ -137,6 +137,7 @@ from typing import (
 from common.finding import build_unified_finding
 from common.runtime import normalize_service_tier, utc_now
 from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
+from common.verification import read_verification_request
 
 # ============================================================================
 # CONFIGURATION
@@ -605,10 +606,32 @@ def build_trivy_command(
             f"Unsupported scan_type: {scan_type}"
         )
 
+    target = str(
+        target
+    ).strip()
+
     if not target:
 
         raise ValueError(
             "Trivy target cannot be empty"
+        )
+
+    if len(target) > 2048:
+        raise ValueError(
+            "Trivy target exceeds maximum length of 2048"
+        )
+
+    if target.startswith("-"):
+        raise ValueError(
+            "Trivy target must not begin with '-'"
+        )
+
+    if any(
+        char in target
+        for char in ("\x00", "\r", "\n")
+    ):
+        raise ValueError(
+            "Trivy target contains prohibited control characters"
         )
 
     command = [
@@ -2804,6 +2827,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--verification-request-stdin",
+        action="store_true",
+        help=(
+            "Read the canonical Stage-2 verification request "
+            "as one JSON object from stdin."
+        ),
+    )
+
+    parser.add_argument(
         "--json",
         action="store_true",
         help=(
@@ -2903,6 +2935,54 @@ def parse_arguments() -> argparse.Namespace:
 def main() -> int:
 
     args = parse_arguments()
+
+    if (
+        getattr(
+            args,
+            "verification_request_stdin",
+            False,
+        )
+    ):
+        if (
+            getattr(
+                args,
+                "mode",
+                None,
+            )
+            != "verify"
+        ):
+            raise ValueError(
+                "--verification-request-stdin is valid only "
+                "with --mode verify"
+            )
+
+        verification_request = (
+            read_verification_request()
+        )
+
+        args.target_host = (
+            verification_request[
+                "target_host"
+            ]
+        )
+
+        args.finding_key = (
+            verification_request[
+                "finding_key"
+            ]
+        )
+
+        args.finding_class = (
+            verification_request[
+                "finding_class"
+            ]
+        )
+
+        args.engine_metadata_json = (
+            verification_request[
+                "engine_metadata_json"
+            ]
+        )
 
     try:
 
