@@ -34,13 +34,13 @@ services:
     cap_add:
       - NET_ADMIN  # Grants permission to modify iptables/firewall rules
     environment:
-      - REGIS_ANSIBLE_PLAYBOOK_DIR=/etc/ansible/playbooks
+      - ANSIBLE_PLAYBOOK_DIR=/etc/ansible/playbooks
       - ANSIBLE_ROLES_PATH=/etc/ansible/roles
-      - REGIS_ALLOWED_PLAYBOOKS=os_patching.yml,container_image.yml,cis_hardening.yml,service_config.yml,web_application.yml,file_integrity.yml,security_incident.yml
-      - REGIS_ANSIBLE_RUNNER_TOKEN=${REGIS_ANSIBLE_RUNNER_TOKEN}
-      - REGIS_ANSIBLE_LISTENER_HOST=0.0.0.0
-      - REGIS_ANSIBLE_LISTENER_PORT="8080"
-      - REGIS_ANSIBLE_TIMEOUT=1800
+      - ALLOWED_PLAYBOOKS=os_patching.yml,container_image.yml,cis_hardening.yml,service_config.yml,web_application.yml,file_integrity.yml,security_incident.yml
+      - ANSIBLE_RUNNER_TOKEN=${ANSIBLE_RUNNER_TOKEN}
+      - ANSIBLE_RUNNER_HOST=0.0.0.0
+      - ANSIBLE_RUNNER_PORT="8080"
+      - ANSIBLE_TIMEOUT=1800
     restart: always
     volumes:
       - ../../../ansible:/etc/ansible

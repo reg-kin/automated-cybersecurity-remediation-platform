@@ -142,6 +142,7 @@ REGRESSION_TESTS=(
     "tests/test_deferred_verification_runtime.py"
     "tests/test_ansible_runner_allowlist.py"
     "tests/test_verification_gateway_security.py"
+    "tests/test_api_authentication.py"
     "tests/test_unified_finding_schema.py"
     "tests/test_nuclei_normalization.py"
     "tests/test_trivy_normalization.py"
@@ -188,16 +189,16 @@ done
 
 # Controller bind configuration must remain externally configurable while
 # retaining the documented loopback deployment default.
-grep -Fq '"REGIS_CONTROLLER_HOST"' "${CONTROLLER_API}" \
-    || fail "Controller no longer consumes REGIS_CONTROLLER_HOST."
+grep -Fq '"CONTROLLER_HOST"' "${CONTROLLER_API}" \
+    || fail "Controller no longer consumes CONTROLLER_HOST."
 
-grep -Fq '"REGIS_CONTROLLER_PORT"' "${CONTROLLER_API}" \
-    || fail "Controller no longer consumes REGIS_CONTROLLER_PORT."
+grep -Fq '"CONTROLLER_PORT"' "${CONTROLLER_API}" \
+    || fail "Controller no longer consumes CONTROLLER_PORT."
 
-grep -Fxq 'REGIS_CONTROLLER_HOST=127.0.0.1' "${CONTROLLER_ENV}" \
+grep -Fxq 'CONTROLLER_HOST=127.0.0.1' "${CONTROLLER_ENV}" \
     || fail "Controller environment example must default to loopback."
 
-grep -Fxq 'REGIS_CONTROLLER_PORT=9000' "${CONTROLLER_ENV}" \
+grep -Fxq 'CONTROLLER_PORT=9000' "${CONTROLLER_ENV}" \
     || fail "Controller environment example has the wrong controller port."
 
 # The reference Compose deployment exposes host port 8081 while the
@@ -207,10 +208,10 @@ grep -Fq '"127.0.0.1:8081:8080"' "${COMPOSE}" \
 
 EXPECTED_PLAYBOOKS="os_patching.yml,container_image.yml,cis_hardening.yml,service_config.yml,web_application.yml,file_integrity.yml,security_incident.yml"
 
-grep -Fq "REGIS_ALLOWED_PLAYBOOKS=${EXPECTED_PLAYBOOKS}" "${COMPOSE}" \
+grep -Fq "ALLOWED_PLAYBOOKS=${EXPECTED_PLAYBOOKS}" "${COMPOSE}" \
     || fail "Production Ansible playbook allowlist is missing or incorrect."
 
-if grep -Eq 'REGIS_ALLOWED_PLAYBOOKS=.*controller_.*\.yml' "${COMPOSE}"; then
+if grep -Eq 'ALLOWED_PLAYBOOKS=.*controller_.*\.yml' "${COMPOSE}"; then
     fail "Controller test playbook appears in the production Ansible allowlist."
 fi
 

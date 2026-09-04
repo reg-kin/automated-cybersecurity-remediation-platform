@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import hmac
 import ipaddress
 import json
 import os
@@ -18,18 +19,18 @@ app = Flask(__name__)
 # ============================================================================
 
 PLAYBOOK_DIR = os.getenv(
-    "REGIS_ANSIBLE_PLAYBOOK_DIR",
+    "ANSIBLE_PLAYBOOK_DIR",
     ""
 )
 
 RUNNER_TOKEN = os.getenv(
-    "REGIS_ANSIBLE_RUNNER_TOKEN",
+    "ANSIBLE_RUNNER_TOKEN",
     ""
 )
 
 ANSIBLE_TIMEOUT = int(
     os.getenv(
-        "REGIS_ANSIBLE_TIMEOUT",
+        "ANSIBLE_TIMEOUT",
         "1800"
     )
 )
@@ -37,14 +38,14 @@ ANSIBLE_TIMEOUT = int(
 
 def load_allowed_playbooks():
     """
-    Load the API playbook allowlist from REGIS_ALLOWED_PLAYBOOKS.
+    Load the API playbook allowlist from ALLOWED_PLAYBOOKS.
 
     The allowlist is mandatory. Each entry must be a plain playbook basename;
     path traversal and path-like values are rejected at startup.
     """
 
     raw = os.getenv(
-        "REGIS_ALLOWED_PLAYBOOKS",
+        "ALLOWED_PLAYBOOKS",
         ""
     )
 
@@ -56,7 +57,7 @@ def load_allowed_playbooks():
 
     if not entries:
         raise RuntimeError(
-            "REGIS_ALLOWED_PLAYBOOKS must contain at least one playbook"
+            "ALLOWED_PLAYBOOKS must contain at least one playbook"
         )
 
     invalid = [
@@ -72,7 +73,7 @@ def load_allowed_playbooks():
 
     if invalid:
         raise RuntimeError(
-            "REGIS_ALLOWED_PLAYBOOKS contains invalid playbook names: "
+            "ALLOWED_PLAYBOOKS contains invalid playbook names: "
             + ", ".join(sorted(invalid))
         )
 
@@ -87,26 +88,26 @@ ALLOWED_PLAYBOOKS = load_allowed_playbooks()
 # AUTHENTICATION
 # ============================================================================
 
+if not RUNNER_TOKEN or not RUNNER_TOKEN.strip():
+    raise RuntimeError(
+        "ANSIBLE_RUNNER_TOKEN must be configured with a non-empty value"
+    )
+
+
 def authorised():
-    """
-    Validate the optional Bearer token.
-
-    If REGIS_ANSIBLE_RUNNER_TOKEN is empty, authentication is disabled.
-
-    In production, set the token.
-    """
-
-    if not RUNNER_TOKEN:
-        return True
+    """Validate the mandatory Bearer token."""
 
     auth_header = request.headers.get(
         "Authorization",
-        ""
+        "",
     )
 
     expected = f"Bearer {RUNNER_TOKEN}"
 
-    return auth_header == expected
+    return hmac.compare_digest(
+        auth_header,
+        expected,
+    )
 
 
 # ============================================================================
@@ -602,12 +603,12 @@ if __name__ == "__main__":
 
     app.run(
         host=os.getenv(
-            "REGIS_ANSIBLE_LISTENER_HOST",
+            "ANSIBLE_RUNNER_HOST",
             "127.0.0.1"
         ),
         port=int(
             os.getenv(
-                "REGIS_ANSIBLE_LISTENER_PORT",
+                "ANSIBLE_RUNNER_PORT",
                 "8080"
             )
         ),

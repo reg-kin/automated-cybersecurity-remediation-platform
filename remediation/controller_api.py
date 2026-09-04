@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import hmac
 import os
 
 from flask import Flask, jsonify, request
@@ -35,6 +36,12 @@ from remediation.controllers.security_incident import (
 )
 
 
+if not CONTROLLER_TOKEN or not CONTROLLER_TOKEN.strip():
+    raise RuntimeError(
+        "CONTROLLER_TOKEN must be configured with a non-empty value"
+    )
+
+
 app = Flask(__name__)
 
 
@@ -50,12 +57,15 @@ CONTROLLERS = {
 
 
 def authorised():
-    return (
-        not CONTROLLER_TOKEN
-        or request.headers.get(
-            "Authorization"
-        )
-        == "Bearer " + CONTROLLER_TOKEN
+    auth_header = request.headers.get(
+        "Authorization",
+        "",
+    )
+    expected = f"Bearer {CONTROLLER_TOKEN}"
+
+    return hmac.compare_digest(
+        auth_header,
+        expected,
     )
 
 
@@ -353,12 +363,12 @@ def cancel_execution(execution_id):
 if __name__ == "__main__":
     app.run(
         host=os.getenv(
-            "REGIS_CONTROLLER_HOST",
+            "CONTROLLER_HOST",
             "127.0.0.1",
         ),
         port=int(
             os.getenv(
-                "REGIS_CONTROLLER_PORT",
+                "CONTROLLER_PORT",
                 "9000",
             )
         ),

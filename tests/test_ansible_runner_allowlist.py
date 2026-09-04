@@ -37,16 +37,17 @@ def run_server_import(
     env = os.environ.copy()
 
     env.pop(
-        "REGIS_ALLOWED_PLAYBOOKS",
+        "ALLOWED_PLAYBOOKS",
         None,
     )
+    env["ANSIBLE_RUNNER_TOKEN"] = "test-runner-token"
 
-    env["REGIS_ANSIBLE_PLAYBOOK_DIR"] = str(
+    env["ANSIBLE_PLAYBOOK_DIR"] = str(
         PLAYBOOK_DIR
     )
 
     if allowed_playbooks is not None:
-        env["REGIS_ALLOWED_PLAYBOOKS"] = (
+        env["ALLOWED_PLAYBOOKS"] = (
             allowed_playbooks
         )
 
@@ -83,7 +84,7 @@ result = run_server_import()
 
 assert result.returncode != 0
 assert (
-    "REGIS_ALLOWED_PLAYBOOKS must contain at least one playbook"
+    "ALLOWED_PLAYBOOKS must contain at least one playbook"
     in result.stderr
 )
 
@@ -95,7 +96,7 @@ result = run_server_import(
 
 assert result.returncode != 0
 assert (
-    "REGIS_ALLOWED_PLAYBOOKS must contain at least one playbook"
+    "ALLOWED_PLAYBOOKS must contain at least one playbook"
     in result.stderr
 )
 
