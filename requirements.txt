@@ -6,4 +6,4 @@ jsonschema==4.23.0
 python-gvm==27.7.0
 redis==4.3.4
 rq==1.16.1
-urllib3==2.0.7
+urllib3==2.7.0
