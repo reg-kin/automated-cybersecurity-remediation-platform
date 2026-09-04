@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 import json,os,subprocess,sys
 ORCHESTRATORS={
-'openvas':os.getenv('REGIS_OPENVAS_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/openvas_orchestrator.py'),
-'nmap_nse':os.getenv('REGIS_NMAP_NSE_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/nmap_orchestrator.py'),
-'wazuh_vulnerability':os.getenv('REGIS_WAZUH_VULN_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_vuln_orchestrator.py'),
-'wazuh_sca':os.getenv('REGIS_WAZUH_SCA_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_sca_orchestrator.py'),
-'lynis':os.getenv('REGIS_LYNIS_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/lynis_orchestrator.py'),
-'nuclei':os.getenv('REGIS_NUCLEI_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/nuclei_orchestrator.py'),
-'trivy':os.getenv('REGIS_TRIVY_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/trivy_orchestrator.py'),
+'openvas':os.getenv('OPENVAS_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/openvas_orchestrator.py'),
+'nmap_nse':os.getenv('NMAP_NSE_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/nmap_orchestrator.py'),
+'wazuh_vulnerability':os.getenv('WAZUH_VULN_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_vuln_orchestrator.py'),
+'wazuh_sca':os.getenv('WAZUH_SCA_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_sca_orchestrator.py'),
+'lynis':os.getenv('LYNIS_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/lynis_orchestrator.py'),
+'nuclei':os.getenv('NUCLEI_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/nuclei_orchestrator.py'),
+'trivy':os.getenv('TRIVY_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/trivy_orchestrator.py'),
 }
 
 def dispatch(p):
@@ -18,7 +18,7 @@ def dispatch(p):
     if not os.path.isfile(orch): raise FileNotFoundError(f'Orchestrator does not exist: {orch}')
     meta=p.get('engine_metadata') if isinstance(p.get('engine_metadata'),dict) else {}
     cmd=[sys.executable,orch,'--mode','verify','--target-host',str(p['target_host']),'--finding-key',str(p['finding_key']),'--finding-class',str(p['finding_class']),'--engine-metadata-json',json.dumps(meta,separators=(',',':')),'--json']
-    r=subprocess.run(cmd,capture_output=True,text=True,timeout=int(os.getenv('REGIS_SCANNER_VERIFY_TIMEOUT','1800')))
+    r=subprocess.run(cmd,capture_output=True,text=True,timeout=int(os.getenv('SCANNER_VERIFY_TIMEOUT','1800')))
     if r.returncode!=0:
         return {'finding_id':p['finding_id'],'execution_id':p['execution_id'],'engine_source':src,'finding_class':p['finding_class'],'finding_key':p['finding_key'],'target_host':p['target_host'],'present':True,'verification_status':'FAILED','verification_error':f'Scanner orchestrator exited with return code {r.returncode}','scanner_result':{'present':True,'scanner':src,'target_host':p['target_host'],'finding_key':p['finding_key'],'finding_class':p['finding_class'],'evidence':{},'verification_error':r.stderr.strip(),'return_code':r.returncode}}
     try: result=json.loads(r.stdout.strip())
