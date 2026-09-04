@@ -6,7 +6,7 @@ Trivy Scanner Orchestrator
 ARCHITECTURE
 ============
 
-This orchestrator participates in two separate stages of the Regis
+This orchestrator participates in two separate stages of the automated remediation
 security-assurance platform.
 
 1. SCAN MODE
@@ -2705,7 +2705,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Trivy orchestrator for Regis "
+            "Trivy orchestrator for automated remediation "
             "Unified Security Findings"
         )
     )

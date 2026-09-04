@@ -1,5 +1,5 @@
 ---
-- name: Regis duplicate remediation protection test
+- name: Duplicate remediation protection test
   hosts: all
   gather_facts: false
   become: false

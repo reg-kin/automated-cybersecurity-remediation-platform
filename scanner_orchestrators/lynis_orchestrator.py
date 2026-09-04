@@ -1357,7 +1357,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Lynis compliance/hardening orchestrator"
+            "Lynis compliance/hardening orchestrator"
         )
     )
 

@@ -32,7 +32,7 @@ from psycopg2.extras import Json, RealDictCursor
 
 from remediation.shared import db
 
-LOG = logging.getLogger("regis.deferred_reconciler")
+LOG = logging.getLogger("automated_remediation.deferred_reconciler")
 
 SUPPORTED_ENGINES = {"wazuh_vulnerability", "wazuh_sca"}
 
@@ -501,7 +501,7 @@ def run_once(worker_id: str, batch_size: int, lease_seconds: int, retry_seconds:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Regis deferred Stage 2 reconciler")
+    parser = argparse.ArgumentParser(description="Deferred Stage 2 verification reconciler")
     parser.add_argument("--once", action="store_true", help="Process one batch and exit")
     parser.add_argument("--loop", action="store_true", help="Run continuously")
     args = parser.parse_args()

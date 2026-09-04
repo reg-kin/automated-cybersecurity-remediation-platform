@@ -1832,7 +1832,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Wazuh SCA orchestrator"
+            "Wazuh SCA orchestrator"
         )
     )
 

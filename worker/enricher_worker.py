@@ -17,7 +17,7 @@ LIFECYCLE={'OPEN','IN_REMEDIATION','RESOLVED','FALSE_POSITIVE'}
 COMPLIANCE={'PASS','FAIL','NOT_APPLICABLE'}
 SYSTEM_PROMPT=("You are the risk-enrichment component of an automated cybersecurity remediation platform. Your ONLY job is to enrich the supplied security finding with concise risk context. Do NOT select or recommend an Ansible role, playbook, remediation action, automation tier, approval requirement, remediation capability, or execution parameters. Those decisions are made deterministically by PostgreSQL remediation_rules and n8n. Do not invent technical facts. Return JSON only with exactly: risk_summary, business_context_impact, confidence_score. confidence_score must be between 0 and 1.")
 FALLBACK={'risk_summary':'Security finding requires deterministic remediation-rule evaluation.','business_context_impact':'Potential security exposure or control weakness on the target asset.','confidence_score':0.0}
-logger=logging.getLogger('regis.enricher'); pool=None
+logger=logging.getLogger('automated_remediation.enricher'); pool=None
 
 REFRESH_EVENT_TYPE='scanner_refresh_complete'
 REFRESH_STATUSES={'SUCCESS','FAILED'}

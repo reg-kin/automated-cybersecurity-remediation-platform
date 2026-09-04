@@ -1,5 +1,5 @@
 ---
-- name: Regis remediation - file_integrity
+- name: Automated remediation - file_integrity
   hosts: all
   become: true
   gather_facts: true

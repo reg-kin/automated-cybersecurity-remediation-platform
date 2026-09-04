@@ -1,5 +1,5 @@
 ---
-- name: Regis positive end-to-end remediation test
+- name: Positive end-to-end remediation test
   hosts: all
   gather_facts: false
   become: false
