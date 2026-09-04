@@ -9,6 +9,7 @@ legitimate scanner-specific target forms such as URLs and image references.
 """
 
 import importlib.util
+import json
 import os
 import sys
 from pathlib import Path
@@ -305,6 +306,7 @@ def main():
         test_dispatcher_rejects_control_characters_before_execution,
         test_dispatcher_rejects_oversized_metadata_before_execution,
         test_dispatcher_rejects_invalid_timeout,
+        test_dispatcher_transports_request_data_via_stdin,
     ]
 
     for test in tests:
@@ -318,6 +320,93 @@ def main():
         "security regression tests"
     )
 
+
+def test_dispatcher_transports_request_data_via_stdin():
+    dispatcher = load_module(
+        "test_safety_dispatcher_stdin",
+        "verification/verification_dispatcher.py",
+    )
+
+    dispatcher.ORCHESTRATORS["nuclei"] = str(
+        ROOT
+        / "scanner_orchestrators"
+        / "nuclei_orchestrator.py"
+    )
+
+    sensitive_target = "https://codeql-target.example.test/path"
+    sensitive_key = "CODEQL-FINDING-KEY-987654"
+    sensitive_class = "web_application_vulnerability"
+    sensitive_metadata_value = "CODEQL-METADATA-987654"
+
+    payload = {
+        "finding_id": 1001,
+        "execution_id": 2002,
+        "target_host": sensitive_target,
+        "engine_source": "nuclei",
+        "finding_class": sensitive_class,
+        "finding_key": sensitive_key,
+        "engine_metadata": {
+            "verification_target": sensitive_metadata_value,
+        },
+    }
+
+    captured = {}
+
+    class Completed:
+        returncode = 0
+        stdout = json.dumps(
+            {
+                "present": False,
+            }
+        )
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return Completed()
+
+    with patch.object(
+        dispatcher.subprocess,
+        "run",
+        side_effect=fake_run,
+    ):
+        dispatcher.dispatch(payload)
+
+    command = captured["command"]
+
+    assert command == [
+        dispatcher.sys.executable,
+        dispatcher.ORCHESTRATORS["nuclei"],
+        "--mode",
+        "verify",
+        "--verification-request-stdin",
+        "--json",
+    ]
+
+    command_text = "\n".join(command)
+
+    assert sensitive_target not in command_text
+    assert sensitive_key not in command_text
+    assert sensitive_class not in command_text
+    assert sensitive_metadata_value not in command_text
+
+    stdin_payload = json.loads(
+        captured["kwargs"]["input"]
+    )
+
+    assert stdin_payload == {
+        "target_host": sensitive_target,
+        "finding_key": sensitive_key,
+        "finding_class": sensitive_class,
+        "engine_metadata": {
+            "verification_target": sensitive_metadata_value,
+        },
+    }
+
+    assert captured["kwargs"]["text"] is True
+    assert captured["kwargs"]["capture_output"] is True
+    assert captured["kwargs"]["check"] is False
 
 if __name__ == "__main__":
     main()

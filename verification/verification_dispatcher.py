@@ -188,19 +188,24 @@ def dispatch(p):
         orchestrator,
         "--mode",
         "verify",
-        "--target-host",
-        target_host,
-        "--finding-key",
-        finding_key,
-        "--finding-class",
-        finding_class,
-        "--engine-metadata-json",
-        metadata_json,
+        "--verification-request-stdin",
         "--json",
     ]
 
+    verification_request = json.dumps(
+        {
+            "target_host": target_host,
+            "finding_key": finding_key,
+            "finding_class": finding_class,
+            "engine_metadata": engine_metadata,
+        },
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
     result = subprocess.run(
         command,
+        input=verification_request,
         capture_output=True,
         text=True,
         timeout=_scanner_timeout(),

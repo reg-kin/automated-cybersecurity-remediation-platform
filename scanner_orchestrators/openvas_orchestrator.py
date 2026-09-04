@@ -138,6 +138,7 @@ from gvm.protocols.gmp import Gmp
 
 from common.finding import build_unified_finding
 from common.runtime import VALID_SERVICE_TIERS, utc_now
+from common.verification import read_verification_request
 
 # ============================================================================
 # CONFIGURATION
@@ -2172,6 +2173,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--verification-request-stdin",
+        action="store_true",
+        help=(
+            "Read the canonical Stage-2 verification request "
+            "as one JSON object from stdin."
+        ),
+    )
+
+    parser.add_argument(
         "--json",
         action="store_true",
     )
@@ -2311,6 +2321,54 @@ def main() -> int:
     parser = build_parser()
 
     args = parser.parse_args()
+
+    if (
+        getattr(
+            args,
+            "verification_request_stdin",
+            False,
+        )
+    ):
+        if (
+            getattr(
+                args,
+                "mode",
+                None,
+            )
+            != "verify"
+        ):
+            raise ValueError(
+                "--verification-request-stdin is valid only "
+                "with --mode verify"
+            )
+
+        verification_request = (
+            read_verification_request()
+        )
+
+        args.target_host = (
+            verification_request[
+                "target_host"
+            ]
+        )
+
+        args.finding_key = (
+            verification_request[
+                "finding_key"
+            ]
+        )
+
+        args.finding_class = (
+            verification_request[
+                "finding_class"
+            ]
+        )
+
+        args.engine_metadata_json = (
+            verification_request[
+                "engine_metadata_json"
+            ]
+        )
 
     # ------------------------------------------------------------------
     # No --mode:

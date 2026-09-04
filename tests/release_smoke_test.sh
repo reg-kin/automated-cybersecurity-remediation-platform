@@ -143,6 +143,7 @@ REGRESSION_TESTS=(
     "tests/test_ansible_runner_allowlist.py"
     "tests/test_verification_gateway_security.py"
     "tests/test_verification_command_safety.py"
+    "tests/test_verification_stdin_transport.py"
     "tests/test_api_authentication.py"
     "tests/test_unified_finding_schema.py"
     "tests/test_nuclei_normalization.py"
