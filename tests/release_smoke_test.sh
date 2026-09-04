@@ -142,6 +142,7 @@ REGRESSION_TESTS=(
     "tests/test_deferred_verification_runtime.py"
     "tests/test_ansible_runner_allowlist.py"
     "tests/test_verification_gateway_security.py"
+    "tests/test_verification_command_safety.py"
     "tests/test_api_authentication.py"
     "tests/test_unified_finding_schema.py"
     "tests/test_nuclei_normalization.py"
@@ -260,16 +261,139 @@ declare -A EXPECTED_ORCHESTRATORS=(
     [trivy]="/opt/automated-remediation/scanner_orchestrators/trivy_orchestrator.py"
 )
 
-for engine in "${!EXPECTED_ORCHESTRATORS[@]}"; do
-    orchestrator="${EXPECTED_ORCHESTRATORS[$engine]}"
+python3 - <<'PY_CHECK'
+from pathlib import Path
+import ast
 
-    grep -Fq "'${engine}':os.getenv(" "${DISPATCHER}" \
-        || fail "Verification dispatcher is missing engine: ${engine}"
+dispatcher_path = Path(
+    "verification/verification_dispatcher.py"
+)
 
-    grep -F "'${engine}':os.getenv(" "${DISPATCHER}" \
-        | grep -Fq "'${orchestrator}'" \
-        || fail "Verification dispatcher has the wrong orchestrator path for ${engine}"
-done
+tree = ast.parse(
+    dispatcher_path.read_text()
+)
+
+expected = {
+    "openvas":
+        "/opt/automated-remediation/scanner_orchestrators/openvas_orchestrator.py",
+    "nmap_nse":
+        "/opt/automated-remediation/scanner_orchestrators/nmap_orchestrator.py",
+    "wazuh_vulnerability":
+        "/opt/automated-remediation/scanner_orchestrators/wazuh_vuln_orchestrator.py",
+    "wazuh_sca":
+        "/opt/automated-remediation/scanner_orchestrators/wazuh_sca_orchestrator.py",
+    "lynis":
+        "/opt/automated-remediation/scanner_orchestrators/lynis_orchestrator.py",
+    "nuclei":
+        "/opt/automated-remediation/scanner_orchestrators/nuclei_orchestrator.py",
+    "trivy":
+        "/opt/automated-remediation/scanner_orchestrators/trivy_orchestrator.py",
+}
+
+mapping = None
+
+for node in tree.body:
+    if not isinstance(node, ast.Assign):
+        continue
+
+    if not any(
+        isinstance(target, ast.Name)
+        and target.id == "ORCHESTRATORS"
+        for target in node.targets
+    ):
+        continue
+
+    if not isinstance(node.value, ast.Dict):
+        raise SystemExit(
+            "ORCHESTRATORS is not a dictionary"
+        )
+
+    mapping = {}
+
+    for key_node, value_node in zip(
+        node.value.keys,
+        node.value.values,
+    ):
+        if not (
+            isinstance(key_node, ast.Constant)
+            and isinstance(key_node.value, str)
+        ):
+            raise SystemExit(
+                "ORCHESTRATORS contains a non-string key"
+            )
+
+        if not (
+            isinstance(value_node, ast.Call)
+            and isinstance(value_node.func, ast.Attribute)
+            and isinstance(value_node.func.value, ast.Name)
+            and value_node.func.value.id == "os"
+            and value_node.func.attr == "getenv"
+            and len(value_node.args) >= 2
+            and isinstance(value_node.args[1], ast.Constant)
+            and isinstance(value_node.args[1].value, str)
+        ):
+            raise SystemExit(
+                "Unexpected ORCHESTRATORS value for "
+                f"{key_node.value}"
+            )
+
+        mapping[key_node.value] = (
+            value_node.args[1].value
+        )
+
+    break
+
+if mapping is None:
+    raise SystemExit(
+        "ORCHESTRATORS mapping not found"
+    )
+
+missing = sorted(
+    set(expected) - set(mapping)
+)
+
+unexpected = sorted(
+    set(mapping) - set(expected)
+)
+
+wrong_paths = {
+    engine: {
+        "expected": expected[engine],
+        "actual": mapping.get(engine),
+    }
+    for engine in expected
+    if mapping.get(engine) != expected[engine]
+}
+
+if missing:
+    raise SystemExit(
+        "Verification dispatcher is missing engines: "
+        + ", ".join(missing)
+    )
+
+if unexpected:
+    raise SystemExit(
+        "Verification dispatcher has unexpected engines: "
+        + ", ".join(unexpected)
+    )
+
+if wrong_paths:
+    details = "; ".join(
+        f"{engine}: expected "
+        f"{values['expected']!r}, got "
+        f"{values['actual']!r}"
+        for engine, values in wrong_paths.items()
+    )
+
+    raise SystemExit(
+        "Verification dispatcher has incorrect "
+        f"orchestrator paths: {details}"
+    )
+
+print(
+    "PASS: Verification dispatcher engine mapping is correct."
+)
+PY_CHECK
 
 pass "Deployment contracts are consistent."
 

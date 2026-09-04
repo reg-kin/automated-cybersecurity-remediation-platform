@@ -855,6 +855,33 @@ def run_nmap(
         ports
     )
 
+    target_host = str(
+        target_host
+    ).strip()
+
+    if not target_host:
+        raise ValueError(
+            "Nmap target_host cannot be empty"
+        )
+
+    if len(target_host) > 2048:
+        raise ValueError(
+            "Nmap target_host exceeds maximum length of 2048"
+        )
+
+    if target_host.startswith("-"):
+        raise ValueError(
+            "Nmap target_host must not begin with '-'"
+        )
+
+    if any(
+        char in target_host
+        for char in ("\x00", "\r", "\n")
+    ):
+        raise ValueError(
+            "Nmap target_host contains prohibited control characters"
+        )
+
     command = [
         NMAP_BINARY,
         "-sV",

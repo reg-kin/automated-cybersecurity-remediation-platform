@@ -605,10 +605,32 @@ def build_trivy_command(
             f"Unsupported scan_type: {scan_type}"
         )
 
+    target = str(
+        target
+    ).strip()
+
     if not target:
 
         raise ValueError(
             "Trivy target cannot be empty"
+        )
+
+    if len(target) > 2048:
+        raise ValueError(
+            "Trivy target exceeds maximum length of 2048"
+        )
+
+    if target.startswith("-"):
+        raise ValueError(
+            "Trivy target must not begin with '-'"
+        )
+
+    if any(
+        char in target
+        for char in ("\x00", "\r", "\n")
+    ):
+        raise ValueError(
+            "Trivy target contains prohibited control characters"
         )
 
     command = [
