@@ -2,15 +2,13 @@
 import json,os,subprocess,sys
 ORCHESTRATORS={
 'openvas':os.getenv('REGIS_OPENVAS_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/openvas_orchestrator.py'),
-'nmap_nse':os.getenv('REGIS_NMAP_NSE_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/nmap_nse_orchestrator.py'),
+'nmap_nse':os.getenv('REGIS_NMAP_NSE_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/nmap_orchestrator.py'),
 'wazuh_vulnerability':os.getenv('REGIS_WAZUH_VULN_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_vuln_orchestrator.py'),
 'wazuh_sca':os.getenv('REGIS_WAZUH_SCA_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_sca_orchestrator.py'),
 'lynis':os.getenv('REGIS_LYNIS_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/lynis_orchestrator.py'),
 'nuclei':os.getenv('REGIS_NUCLEI_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/nuclei_orchestrator.py'),
 'trivy':os.getenv('REGIS_TRIVY_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/trivy_orchestrator.py'),
-'snyk':os.getenv('REGIS_SNYK_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/snyk_orchestrator.py'),
-'wazuh_fim':os.getenv('REGIS_WAZUH_FIM_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_fim_orchestrator.py'),
-'wazuh_rootcheck':os.getenv('REGIS_WAZUH_ROOTCHECK_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_rootcheck_orchestrator.py')}
+}
 
 def dispatch(p):
     req=['finding_id','execution_id','target_host','engine_source','finding_class','finding_key']; missing=[x for x in req if p.get(x) in (None,'')]
