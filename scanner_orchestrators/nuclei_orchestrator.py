@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regis Security Consulting
+Automated Cybersecurity Remediation Platform
 Nuclei Security Scan Orchestrator
 
 PURPOSE
@@ -149,7 +149,7 @@ LOCAL_LOG_PATH = os.getenv(
 
 LOG_DIR = os.getenv(
     "REGIS_LOG_DIR",
-    "/var/log/regis-security",
+    "/var/log/automated-remediation",
 )
 
 ERROR_LOG_PATH = os.path.join(
@@ -2347,7 +2347,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Security Nuclei scanner orchestrator"
+            "Nuclei scanner orchestrator"
         )
     )
 

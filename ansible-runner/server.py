@@ -262,7 +262,7 @@ def health():
 
     return jsonify({
         "status": "ok",
-        "service": "regis-ansible-runner-webhook",
+        "service": "ansible-runner",
         "playbook_directory": PLAYBOOK_DIR,
         "allowed_playbooks": sorted(
             ALLOWED_PLAYBOOKS

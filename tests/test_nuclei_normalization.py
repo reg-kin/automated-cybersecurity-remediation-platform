@@ -31,9 +31,12 @@ def import_nuclei_orchestrator():
     RotatingFileHandler setup to write to /var/log.
     """
 
-    with patch(
-        "logging.handlers.RotatingFileHandler",
-        return_value=logging.NullHandler(),
+    with (
+        patch("os.makedirs"),
+        patch(
+            "logging.handlers.RotatingFileHandler",
+            return_value=logging.NullHandler(),
+        ),
     ):
         import nuclei_orchestrator
 

@@ -75,7 +75,7 @@ def health():
         {
             "status": "ok",
             "service": (
-                "regis-remediation-controller"
+                "remediation-controller"
             ),
             "capabilities": sorted(
                 CONTROLLERS

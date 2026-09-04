@@ -1,5 +1,5 @@
 """
-Regis Security enrichment worker package.
+Automated remediation enrichment worker package.
 
 Exports the canonical RQ entry points for backwards compatibility.
 """

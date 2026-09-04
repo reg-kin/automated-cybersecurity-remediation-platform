@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regis Security Consulting
+Automated Cybersecurity Remediation Platform
 OpenVAS / Greenbone Scan Orchestrator and Webhook Listener
 
 ===========================================================================
@@ -182,7 +182,7 @@ if not OPENVAS_USER or not OPENVAS_PASS:
 
 LOG_DIR = os.getenv(
     "REGIS_LOG_DIR",
-    "/var/log/regis-security",
+    "/var/log/automated-remediation",
 )
 
 LOG_PATH = os.path.join(
@@ -1946,7 +1946,7 @@ class OpenVASUnifiedHandler(
                         "ok",
 
                     "service":
-                        "regis-openvas-orchestrator",
+                        "openvas-orchestrator",
 
                     "mode":
                         "webhook",
@@ -2137,7 +2137,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Security OpenVAS scanner orchestrator"
+            "OpenVAS scanner orchestrator"
         )
     )
 

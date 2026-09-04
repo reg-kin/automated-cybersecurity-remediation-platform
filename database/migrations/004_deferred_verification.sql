@@ -1,7 +1,7 @@
 BEGIN;
 
 -- ============================================================
--- REGIS SECURITY
+-- AUTOMATED CYBERSECURITY REMEDIATION PLATFORM
 -- Deferred Stage 2 Verification
 -- ============================================================
 

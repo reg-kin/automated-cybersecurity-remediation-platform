@@ -1,0 +1,26 @@
+[Unit]
+Description=Deferred Stage 2 Verification Reconciler
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+EnvironmentFile=/etc/remediation-controller.env
+Environment=PYTHONPATH=/opt/automated-remediation
+
+WorkingDirectory=/opt/automated-remediation
+
+ExecStart=/opt/automated-remediation/venv/bin/python /opt/automated-remediation/remediation/deferred_reconciler.py --loop
+
+Restart=on-failure
+RestartSec=10
+
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

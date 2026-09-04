@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regis Security Consulting
+Automated Cybersecurity Remediation Platform
 Wazuh Vulnerability Detection Orchestrator
 
 PURPOSE
@@ -131,7 +131,7 @@ INDEX_PATTERN = os.getenv(
 
 CREDENTIALS_FILE = os.getenv(
     "REGIS_WAZUH_CREDENTIALS_FILE",
-    "/opt/regis-security/scanner_orchestrators/api_keys.json",
+    "/opt/automated-remediation/scanner_orchestrators/api_keys.json",
 )
 
 DATA_LOG_PATH = os.getenv(
@@ -141,7 +141,7 @@ DATA_LOG_PATH = os.getenv(
 
 LOG_DIR = os.getenv(
     "REGIS_LOG_DIR",
-    "/var/log/regis-security",
+    "/var/log/automated-remediation",
 )
 
 ERROR_LOG_PATH = os.path.join(
@@ -1998,7 +1998,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Security Wazuh Vulnerability "
+            "Wazuh Vulnerability "
             "Detection scanner orchestrator"
         )
     )

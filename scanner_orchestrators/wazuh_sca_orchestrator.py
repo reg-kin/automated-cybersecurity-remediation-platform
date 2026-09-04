@@ -1,15 +1,15 @@
-#!/usr/bin/env python3                                                                                                                                      
-"""                                                                                                                                                         
-Regis Security Consulting                                                                                                                                   
-Wazuh Security Configuration Assessment Orchestrator                                                                                                        
-                                                                                                                                                            
-Responsibilities                                                                                                                                            
-================                                                                                                                                            
-                                                                                                                                                            
-SCAN MODE                                                                                                                                                   
----------                                                                                                                                                   
-- Authenticates to the existing Wazuh server API.                                                                                                           
-- Requests the SCA data already maintained by Wazuh.                                                                                                        
+#!/usr/bin/env python3
+"""
+Automated Cybersecurity Remediation Platform
+Wazuh Security Configuration Assessment Orchestrator
+
+Responsibilities
+================
+
+SCAN MODE
+---------
+- Authenticates to the existing Wazuh server API.
+- Requests the SCA data already maintained by Wazuh.
 - Retrieves policies and their checks for the requested Wazuh agent.
 - Processes FAILED checks only.
 - Deterministically assigns one of the approved Wazuh SCA finding classes.
@@ -139,7 +139,7 @@ WAZUH_URL = os.getenv(
 
 CREDENTIALS_FILE = os.getenv(
     "REGIS_WAZUH_CREDENTIALS_FILE",
-    "/opt/regis-security/scanner_orchestrators/api_keys.json",
+    "/opt/automated-remediation/scanner_orchestrators/api_keys.json",
 )
 
 DATA_LOG_PATH = os.getenv(

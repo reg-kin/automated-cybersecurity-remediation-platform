@@ -9,8 +9,8 @@ from jsonschema import Draft7Validator, FormatChecker
 from psycopg2.pool import SimpleConnectionPool
 from psycopg2.extras import Json
 
-CONFIG_PATH=os.getenv('REGIS_CONFIG','/opt/regis-security/config.json')
-DEFAULT={'ollama_url':'http://127.0.0.1:11434/api/chat','ollama_model':'phi3:latest','ollama_timeout':120,'pg_host':'127.0.0.1','pg_port':5432,'pg_dbname':'security_portal','pg_user':'telemetry_admin','pg_password':'','pg_minconn':1,'pg_maxconn':5,'log_dir':'/var/log/regis-security','recurrence_grace_seconds':300}
+CONFIG_PATH=os.getenv('ENRICHER_CONFIG','/opt/automated-remediation/config.json')
+DEFAULT={'ollama_url':'http://127.0.0.1:11434/api/chat','ollama_model':'phi3:latest','ollama_timeout':120,'pg_host':'127.0.0.1','pg_port':5432,'pg_dbname':'security_portal','pg_user':'telemetry_admin','pg_password':'','pg_minconn':1,'pg_maxconn':5,'log_dir':'/var/log/automated-remediation','recurrence_grace_seconds':300}
 CATEGORIES={'vulnerability','compliance_drift','integrity_drift','rootkit'}
 SEVERITIES={'CRITICAL','HIGH','MEDIUM','LOW'}
 LIFECYCLE={'OPEN','IN_REMEDIATION','RESOLVED','FALSE_POSITIVE'}

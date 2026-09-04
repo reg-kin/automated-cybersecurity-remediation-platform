@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regis Security deferred Stage 2 verification reconciler.
+"""Automated remediation deferred Stage 2 verification reconciler.
 
 Consumes deferred_verification_jobs created by remediation controllers after
 Stage 1 passes for asynchronous scanners (currently Wazuh Vulnerability
@@ -55,14 +55,14 @@ def env_int(name: str, default: int, minimum: int = 1) -> int:
 
 
 def make_worker_id() -> str:
-    configured = os.getenv("REGIS_DEFERRED_WORKER_ID", "").strip()
+    configured = os.getenv("DEFERRED_WORKER_ID", "").strip()
     if configured:
         return configured
     return f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
 
 def setup_logging() -> None:
-    level = os.getenv("REGIS_DEFERRED_LOG_LEVEL", "INFO").upper()
+    level = os.getenv("DEFERRED_LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
         level=getattr(logging, level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -507,10 +507,10 @@ def main() -> int:
     args = parser.parse_args()
 
     setup_logging()
-    batch_size = env_int("REGIS_DEFERRED_BATCH_SIZE", 20)
-    lease_seconds = env_int("REGIS_DEFERRED_LEASE_SECONDS", 120)
-    retry_seconds = env_int("REGIS_DEFERRED_RETRY_SECONDS", 60)
-    poll_seconds = env_int("REGIS_DEFERRED_POLL_SECONDS", 30)
+    batch_size = env_int("DEFERRED_BATCH_SIZE", 20)
+    lease_seconds = env_int("DEFERRED_LEASE_SECONDS", 120)
+    retry_seconds = env_int("DEFERRED_RETRY_SECONDS", 60)
+    poll_seconds = env_int("DEFERRED_POLL_SECONDS", 30)
     worker_id = make_worker_id()
 
     if args.loop and args.once:

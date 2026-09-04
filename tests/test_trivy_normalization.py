@@ -30,9 +30,12 @@ def import_trivy_orchestrator():
     RotatingFileHandler setup to write to /var/log.
     """
 
-    with patch(
-        "logging.handlers.RotatingFileHandler",
-        return_value=logging.NullHandler(),
+    with (
+        patch("os.makedirs"),
+        patch(
+            "logging.handlers.RotatingFileHandler",
+            return_value=logging.NullHandler(),
+        ),
     ):
         import trivy_orchestrator
 

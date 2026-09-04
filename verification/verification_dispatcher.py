@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 import json,os,subprocess,sys
 ORCHESTRATORS={
-'openvas':os.getenv('OPENVAS_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/openvas_orchestrator.py'),
-'nmap_nse':os.getenv('NMAP_NSE_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/nmap_orchestrator.py'),
-'wazuh_vulnerability':os.getenv('WAZUH_VULN_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_vuln_orchestrator.py'),
-'wazuh_sca':os.getenv('WAZUH_SCA_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/wazuh_sca_orchestrator.py'),
-'lynis':os.getenv('LYNIS_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/lynis_orchestrator.py'),
-'nuclei':os.getenv('NUCLEI_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/nuclei_orchestrator.py'),
-'trivy':os.getenv('TRIVY_ORCHESTRATOR','/opt/regis-security/scanner_orchestrators/trivy_orchestrator.py'),
+'openvas':os.getenv('OPENVAS_ORCHESTRATOR','/opt/automated-remediation/scanner_orchestrators/openvas_orchestrator.py'),
+'nmap_nse':os.getenv('NMAP_NSE_ORCHESTRATOR','/opt/automated-remediation/scanner_orchestrators/nmap_orchestrator.py'),
+'wazuh_vulnerability':os.getenv('WAZUH_VULN_ORCHESTRATOR','/opt/automated-remediation/scanner_orchestrators/wazuh_vuln_orchestrator.py'),
+'wazuh_sca':os.getenv('WAZUH_SCA_ORCHESTRATOR','/opt/automated-remediation/scanner_orchestrators/wazuh_sca_orchestrator.py'),
+'lynis':os.getenv('LYNIS_ORCHESTRATOR','/opt/automated-remediation/scanner_orchestrators/lynis_orchestrator.py'),
+'nuclei':os.getenv('NUCLEI_ORCHESTRATOR','/opt/automated-remediation/scanner_orchestrators/nuclei_orchestrator.py'),
+'trivy':os.getenv('TRIVY_ORCHESTRATOR','/opt/automated-remediation/scanner_orchestrators/trivy_orchestrator.py'),
 }
 
 def dispatch(p):

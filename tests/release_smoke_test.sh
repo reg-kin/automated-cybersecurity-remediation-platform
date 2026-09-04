@@ -11,17 +11,17 @@ set -Eeuo pipefail
 #   ./tests/release_smoke_test.sh
 #
 # Optional environment variables:
-#   REGIS_PG_CONTAINER   PostgreSQL container name
-#   REGIS_PG_USER        PostgreSQL user
-#   REGIS_TEST_DB        Temporary test database name
+#   PG_CONTAINER   PostgreSQL container name
+#   PG_USER        PostgreSQL user
+#   TEST_DB        Temporary test database name
 #
 # Defaults reflect the current tested development environment.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-PG_CONTAINER="${REGIS_PG_CONTAINER:-portal-datastore}"
-PG_USER="${REGIS_PG_USER:-telemetry_admin}"
-TEST_DB="${REGIS_TEST_DB:-regis_release_smoke_test}"
+PG_CONTAINER="${PG_CONTAINER:-portal-datastore}"
+PG_USER="${PG_USER:-telemetry_admin}"
+TEST_DB="${TEST_DB:-regis_release_smoke_test}"
 
 EXPECTED_FINDING_CLASSES=43
 EXPECTED_GENERIC_RULES=43
@@ -175,7 +175,7 @@ DISPATCHER="verification/verification_dispatcher.py"
 COMPOSE="deployment/docker/n8n-ansible/docker-compose.yml"
 ENRICHER_SERVICE="deployment/systemd/ollama-wazuh-enricher.service"
 ENRICHER_OVERRIDE="deployment/systemd/ollama-wazuh-enricher.service.d/override.conf"
-CONTROLLER_ENV="deployment/systemd/env/regis-controller.env.example"
+CONTROLLER_ENV="deployment/systemd/env/remediation-controller.env.example"
 
 for file in \
     "${CONTROLLER_API}" \
@@ -217,7 +217,7 @@ fi
 
 # The repository root is the Python package import root for RQ workers.
 grep -Fq \
-    'ExecStart=/usr/bin/rq worker ai-enrichment --path /opt/regis-security' \
+    'ExecStart=/usr/bin/rq worker ai-enrichment --path /opt/automated-remediation' \
     "${ENRICHER_SERVICE}" \
     || fail "AI enrichment worker uses the wrong RQ import path."
 
@@ -227,13 +227,13 @@ grep -Fq \
 # Stage-2 dispatcher support is intentionally limited to the seven
 # implemented scanner orchestrators.
 declare -A EXPECTED_ORCHESTRATORS=(
-    [openvas]="/opt/regis-security/scanner_orchestrators/openvas_orchestrator.py"
-    [nmap_nse]="/opt/regis-security/scanner_orchestrators/nmap_orchestrator.py"
-    [wazuh_vulnerability]="/opt/regis-security/scanner_orchestrators/wazuh_vuln_orchestrator.py"
-    [wazuh_sca]="/opt/regis-security/scanner_orchestrators/wazuh_sca_orchestrator.py"
-    [lynis]="/opt/regis-security/scanner_orchestrators/lynis_orchestrator.py"
-    [nuclei]="/opt/regis-security/scanner_orchestrators/nuclei_orchestrator.py"
-    [trivy]="/opt/regis-security/scanner_orchestrators/trivy_orchestrator.py"
+    [openvas]="/opt/automated-remediation/scanner_orchestrators/openvas_orchestrator.py"
+    [nmap_nse]="/opt/automated-remediation/scanner_orchestrators/nmap_orchestrator.py"
+    [wazuh_vulnerability]="/opt/automated-remediation/scanner_orchestrators/wazuh_vuln_orchestrator.py"
+    [wazuh_sca]="/opt/automated-remediation/scanner_orchestrators/wazuh_sca_orchestrator.py"
+    [lynis]="/opt/automated-remediation/scanner_orchestrators/lynis_orchestrator.py"
+    [nuclei]="/opt/automated-remediation/scanner_orchestrators/nuclei_orchestrator.py"
+    [trivy]="/opt/automated-remediation/scanner_orchestrators/trivy_orchestrator.py"
 )
 
 for engine in "${!EXPECTED_ORCHESTRATORS[@]}"; do

@@ -1,13 +1,13 @@
 [Unit]
-Description=Regis Security Scanner Refresh Control Worker
+Description=Scanner Refresh Control Worker
 After=network.target redis-server.service
 Requires=redis-server.service
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/regis-security/worker
-ExecStart=/usr/bin/rq worker scanner-control --path /opt/regis-security
+WorkingDirectory=/opt/automated-remediation/worker
+ExecStart=/usr/bin/rq worker scanner-control --path /opt/automated-remediation
 Restart=always
 RestartSec=5
 
