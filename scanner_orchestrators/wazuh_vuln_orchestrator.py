@@ -120,27 +120,27 @@ import urllib3
 # ============================================================================
 
 INDEXER_URL = os.getenv(
-    "REGIS_WAZUH_INDEXER_URL",
+    "WAZUH_INDEXER_URL",
     "https://127.0.0.1:9200",
 )
 
 INDEX_PATTERN = os.getenv(
-    "REGIS_WAZUH_VULN_INDEX",
+    "WAZUH_VULN_INDEX",
     "wazuh-states-vulnerabilities-*",
 )
 
 CREDENTIALS_FILE = os.getenv(
-    "REGIS_WAZUH_CREDENTIALS_FILE",
+    "WAZUH_CREDENTIALS_FILE",
     "/opt/automated-remediation/scanner_orchestrators/api_keys.json",
 )
 
 DATA_LOG_PATH = os.getenv(
-    "REGIS_SCANNER_RAW_LOG",
+    "WAZUH_VULN_RAW_LOG",
     "/var/log/scanners_raw.log",
 )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
+    "LOG_DIR",
     "/var/log/automated-remediation",
 )
 
@@ -151,23 +151,23 @@ ERROR_LOG_PATH = os.path.join(
 
 REQUEST_TIMEOUT = int(
     os.getenv(
-        "REGIS_WAZUH_INDEXER_TIMEOUT",
+        "WAZUH_INDEXER_TIMEOUT",
         "30",
     )
 )
 
 PAGE_SIZE = int(
     os.getenv(
-        "REGIS_WAZUH_VULN_PAGE_SIZE",
+        "WAZUH_VULN_PAGE_SIZE",
         os.getenv(
-            "REGIS_WAZUH_VULN_MAX_RESULTS",
+            "WAZUH_VULN_MAX_RESULTS",
             "5000",
         ),
     )
 )
 
 SCROLL_TTL = os.getenv(
-    "REGIS_WAZUH_VULN_SCROLL_TTL",
+    "WAZUH_VULN_SCROLL_TTL",
     "2m",
 )
 
@@ -311,15 +311,15 @@ def load_credentials():
 
     Credential precedence:
 
-    1. REGIS_WAZUH_INDEXER_USER and REGIS_WAZUH_INDEXER_PASSWORD
+    1. WAZUH_INDEXER_USER and WAZUH_INDEXER_PASSWORD
     2. Optional local credentials file defined by CREDENTIALS_FILE
 
     No hard-coded production credentials or usable default password are
     permitted.
     """
 
-    env_user = os.getenv("REGIS_WAZUH_INDEXER_USER", "").strip()
-    env_password = os.getenv("REGIS_WAZUH_INDEXER_PASSWORD", "").strip()
+    env_user = os.getenv("WAZUH_INDEXER_USER", "").strip()
+    env_password = os.getenv("WAZUH_INDEXER_PASSWORD", "").strip()
 
     if env_user and env_password:
         return env_user, env_password
@@ -364,8 +364,8 @@ def load_credentials():
 
     raise RuntimeError(
         "Wazuh Indexer credentials are not configured. "
-        "Set REGIS_WAZUH_INDEXER_USER and "
-        "REGIS_WAZUH_INDEXER_PASSWORD, or provide a valid "
+        "Set WAZUH_INDEXER_USER and "
+        "WAZUH_INDEXER_PASSWORD, or provide a valid "
         "local credentials file."
     )
 
@@ -1193,7 +1193,7 @@ def query_indexer(
 
     if page_size <= 0:
         raise ValueError(
-            "REGIS_WAZUH_VULN_PAGE_SIZE must be greater than zero"
+            "WAZUH_VULN_PAGE_SIZE must be greater than zero"
         )
 
     user, password = load_credentials()

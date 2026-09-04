@@ -90,11 +90,11 @@ def load_orchestrator():
         with patch.dict(
             os.environ,
             {
-                "REGIS_OPENVAS_USER":
+                "OPENVAS_USER":
                     "test-user",
-                "REGIS_OPENVAS_PASSWORD":
+                "OPENVAS_PASSWORD":
                     "test-password",
-                "REGIS_LOG_DIR":
+                "LOG_DIR":
                     log_dir,
             },
         ):

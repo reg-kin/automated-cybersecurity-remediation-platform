@@ -176,16 +176,40 @@ COMPOSE="deployment/docker/n8n-ansible/docker-compose.yml"
 ENRICHER_SERVICE="deployment/systemd/ollama-wazuh-enricher.service"
 ENRICHER_OVERRIDE="deployment/systemd/ollama-wazuh-enricher.service.d/override.conf"
 CONTROLLER_ENV="deployment/systemd/env/remediation-controller.env.example"
+SCANNER_ENV="deployment/systemd/env/verification-scanner.env.example"
+WAZUH_INDEXER_ENV="deployment/systemd/env/wazuh-indexer.env.example"
 
 for file in \
     "${CONTROLLER_API}" \
     "${DISPATCHER}" \
     "${COMPOSE}" \
     "${ENRICHER_SERVICE}" \
-    "${CONTROLLER_ENV}"
+    "${CONTROLLER_ENV}" \
+    "${SCANNER_ENV}" \
+    "${WAZUH_INDEXER_ENV}"
 do
     [[ -f "${file}" ]] || fail "Required deployment contract file missing: ${file}"
 done
+
+# Public scanner configuration names must remain neutral. This deliberately
+# checks production scanner sources and deployment examples only; obsolete
+# names retained by negative security tests and non-environment integration
+# identifiers are outside this contract.
+DEPRECATED_SCANNER_ENV_PATTERN='REGIS_(NMAP|LYNIS|COMPLIANCE|LOG_DIR|WAZUH|SCA|NUCLEI|OPENVAS|GVMD|SCANNER|TRIVY)_[A-Z0-9_]+'
+
+if grep -REn     "${DEPRECATED_SCANNER_ENV_PATTERN}"     scanner_orchestrators     deployment/systemd/env
+then
+    fail "Deprecated REGIS_* scanner configuration name detected."
+fi
+
+for expected in     'NUCLEI_BINARY=/usr/bin/nuclei'     'TRIVY_BINARY=/usr/bin/trivy'     'NMAP_BINARY=/usr/bin/nmap'
+do
+    grep -Fxq "${expected}" "${SCANNER_ENV}"         || fail "Scanner verification environment example is missing: ${expected}"
+done
+
+grep -Fxq 'WAZUH_INDEXER_USER=CHANGE_ME' "${WAZUH_INDEXER_ENV}"     || fail "Wazuh Indexer environment example is missing WAZUH_INDEXER_USER."
+
+grep -Fxq 'WAZUH_INDEXER_PASSWORD=CHANGE_ME' "${WAZUH_INDEXER_ENV}"     || fail "Wazuh Indexer environment example is missing WAZUH_INDEXER_PASSWORD."
 
 # Controller bind configuration must remain externally configurable while
 # retaining the documented loopback deployment default.

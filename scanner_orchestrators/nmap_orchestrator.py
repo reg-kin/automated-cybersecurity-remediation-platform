@@ -127,12 +127,12 @@ from common.runtime import normalize_service_tier, utc_now
 # Keep the existing log path by default so the current Wazuh logcollector
 # configuration is not broken.
 LOCAL_LOG_PATH = os.getenv(
-    "REGIS_NMAP_RAW_LOG",
+    "NMAP_RAW_LOG",
     "/var/log/compliance_raw.log",
 )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
+    "LOG_DIR",
     "/var/log/automated-remediation",
 )
 
@@ -142,13 +142,13 @@ ERROR_LOG_PATH = os.path.join(
 )
 
 NMAP_BINARY = os.getenv(
-    "REGIS_NMAP_BINARY",
+    "NMAP_BINARY",
     "nmap",
 )
 
 NMAP_TIMEOUT = int(
     os.getenv(
-        "REGIS_NMAP_TIMEOUT",
+        "NMAP_TIMEOUT",
         "1800",
     )
 )

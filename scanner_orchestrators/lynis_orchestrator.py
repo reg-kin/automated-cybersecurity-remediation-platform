@@ -123,17 +123,17 @@ from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 # ============================================================================
 
 LYNIS_REPORT_PATH = os.getenv(
-    "REGIS_LYNIS_REPORT_PATH",
+    "LYNIS_REPORT_PATH",
     "/var/log/lynis-report.dat",
 )
 
 LOCAL_COMPLIANCE_LOG = os.getenv(
-    "REGIS_COMPLIANCE_RAW_LOG",
+    "COMPLIANCE_RAW_LOG",
     "/var/log/compliance_raw.log",
 )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
+    "LOG_DIR",
     "/var/log/automated-remediation",
 )
 
@@ -143,19 +143,19 @@ ERROR_LOG_PATH = os.path.join(
 )
 
 LYNIS_BINARY = os.getenv(
-    "REGIS_LYNIS_BINARY",
+    "LYNIS_BINARY",
     "lynis",
 )
 
 LYNIS_TIMEOUT = int(
     os.getenv(
-        "REGIS_LYNIS_TIMEOUT",
+        "LYNIS_TIMEOUT",
         "900",
     )
 )
 
 DEFAULT_TASK_NAME = os.getenv(
-    "REGIS_LYNIS_TASK_NAME",
+    "LYNIS_TASK_NAME",
     "Lynis System Audit",
 )
 

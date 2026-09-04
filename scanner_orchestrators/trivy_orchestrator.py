@@ -143,17 +143,17 @@ from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 # ============================================================================
 
 TRIVY_BINARY = os.getenv(
-    "REGIS_TRIVY_BINARY",
+    "TRIVY_BINARY",
     "trivy",
 )
 
 DATA_LOG_PATH = os.getenv(
-    "REGIS_SCANNER_RAW_LOG",
+    "TRIVY_RAW_LOG",
     "/var/log/scanners_raw.log",
 )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
+    "LOG_DIR",
     "/var/log/automated-remediation",
 )
 
@@ -164,7 +164,7 @@ ERROR_LOG_PATH = os.path.join(
 
 TRIVY_TIMEOUT = int(
     os.getenv(
-        "REGIS_TRIVY_TIMEOUT",
+        "TRIVY_TIMEOUT",
         "1800",
     )
 )

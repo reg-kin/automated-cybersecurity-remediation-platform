@@ -138,17 +138,17 @@ from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 # ============================================================================
 
 NUCLEI_BINARY = os.getenv(
-    "REGIS_NUCLEI_BINARY",
+    "NUCLEI_BINARY",
     "nuclei",
 )
 
 LOCAL_LOG_PATH = os.getenv(
-    "REGIS_NUCLEI_RAW_LOG",
+    "NUCLEI_RAW_LOG",
     "/var/log/scanners_raw.log",
 )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
+    "LOG_DIR",
     "/var/log/automated-remediation",
 )
 
@@ -159,18 +159,18 @@ ERROR_LOG_PATH = os.path.join(
 
 NUCLEI_TIMEOUT = int(
     os.getenv(
-        "REGIS_NUCLEI_TIMEOUT",
+        "NUCLEI_TIMEOUT",
         "1800",
     )
 )
 
 DEFAULT_TAGS = os.getenv(
-    "REGIS_NUCLEI_DEFAULT_TAGS",
+    "NUCLEI_DEFAULT_TAGS",
     "cve,exposed,tech",
 )
 
 DEFAULT_SEVERITIES = os.getenv(
-    "REGIS_NUCLEI_DEFAULT_SEVERITIES",
+    "NUCLEI_DEFAULT_SEVERITIES",
     "critical,high,medium,low",
 )
 

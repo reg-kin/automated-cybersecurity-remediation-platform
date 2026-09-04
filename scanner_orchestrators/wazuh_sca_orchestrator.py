@@ -133,28 +133,28 @@ from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 # ============================================================================
 
 WAZUH_URL = os.getenv(
-    "REGIS_WAZUH_API_URL",
+    "WAZUH_API_URL",
     "https://161.97.115.174:55000",
 )
 
 CREDENTIALS_FILE = os.getenv(
-    "REGIS_WAZUH_CREDENTIALS_FILE",
+    "WAZUH_CREDENTIALS_FILE",
     "/opt/automated-remediation/scanner_orchestrators/api_keys.json",
 )
 
 DATA_LOG_PATH = os.getenv(
-    "REGIS_SCA_RAW_LOG",
+    "SCA_RAW_LOG",
     "/var/log/compliance_raw.log",
 )
 
 LOG_PATH = os.getenv(
-    "REGIS_SCA_LOG",
+    "SCA_LOG",
     "/var/log/sca_orchestrator.log",
 )
 
 REQUEST_TIMEOUT = int(
     os.getenv(
-        "REGIS_WAZUH_API_TIMEOUT",
+        "WAZUH_API_TIMEOUT",
         "15",
     )
 )

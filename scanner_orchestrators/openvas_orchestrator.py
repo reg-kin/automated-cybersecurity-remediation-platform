@@ -145,43 +145,43 @@ from common.runtime import VALID_SERVICE_TIERS, utc_now
 
 PORT = int(
     os.getenv(
-        "REGIS_OPENVAS_WEBHOOK_PORT",
+        "OPENVAS_WEBHOOK_PORT",
         "8080",
     )
 )
 
 LISTEN_HOST = os.getenv(
-    "REGIS_OPENVAS_WEBHOOK_HOST",
+    "OPENVAS_WEBHOOK_HOST",
     "127.0.0.1",
 )
 
 LOCAL_LOG_PATH = os.getenv(
-    "REGIS_SCANNER_RAW_LOG",
+    "OPENVAS_RAW_LOG",
     "/var/log/scanners_raw.log",
 )
 
 GVMD_SOCKET_PATH = os.getenv(
-    "REGIS_GVMD_SOCKET",
+    "GVMD_SOCKET",
     "/var/run/gvmd/gvmd.sock",
 )
 
 # Preserve the currently working GVMD authentication arrangement.
 OPENVAS_USER = os.getenv(
-    "REGIS_OPENVAS_USER",
+    "OPENVAS_USER",
 )
 
 OPENVAS_PASS = os.getenv(
-    "REGIS_OPENVAS_PASSWORD",
+    "OPENVAS_PASSWORD",
 )
 
 if not OPENVAS_USER or not OPENVAS_PASS:
     raise RuntimeError(
         "OpenVAS credentials are required. "
-        "Set REGIS_OPENVAS_USER and REGIS_OPENVAS_PASSWORD."
+        "Set OPENVAS_USER and OPENVAS_PASSWORD."
     )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
+    "LOG_DIR",
     "/var/log/automated-remediation",
 )
 
@@ -197,14 +197,14 @@ ERROR_LOG_PATH = os.path.join(
 
 VERIFY_POLL_INTERVAL = int(
     os.getenv(
-        "REGIS_OPENVAS_VERIFY_POLL_INTERVAL",
+        "OPENVAS_VERIFY_POLL_INTERVAL",
         "15",
     )
 )
 
 VERIFY_TIMEOUT = int(
     os.getenv(
-        "REGIS_OPENVAS_VERIFY_TIMEOUT",
+        "OPENVAS_VERIFY_TIMEOUT",
         "3600",
     )
 )
@@ -215,7 +215,7 @@ VERIFY_TIMEOUT = int(
 # rather than being ingested as a brand-new scan.
 VERIFY_CALLBACK_SUPPRESSION_SECONDS = int(
     os.getenv(
-        "REGIS_OPENVAS_VERIFY_SUPPRESSION_SECONDS",
+        "OPENVAS_VERIFY_SUPPRESSION_SECONDS",
         "7200",
     )
 )
