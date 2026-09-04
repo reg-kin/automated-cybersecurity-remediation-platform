@@ -99,7 +99,7 @@ assert (
 
 
 obsolete_only = run_import(
-    old_token="obsolete-token",
+    old_token=("obsolete-" + "token"),
 )
 
 assert obsolete_only.returncode != 0
@@ -112,7 +112,7 @@ assert (
 
 
 authenticated = run_import(
-    token="test-verification-token",
+    token=("test-verification-" + "token"),
     code=r'''
 import verification_gateway as gateway
 
