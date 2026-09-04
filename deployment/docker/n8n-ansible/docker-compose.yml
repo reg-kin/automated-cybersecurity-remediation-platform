@@ -36,7 +36,7 @@ services:
     environment:
       - REGIS_ANSIBLE_PLAYBOOK_DIR=/etc/ansible/playbooks
       - ANSIBLE_ROLES_PATH=/etc/ansible/roles
-      - REGIS_ALLOWED_PLAYBOOKS=controller_positive_test.yml,os_patching.yml,container_image.yml,cis_hardening.yml,service_config.yml,web_application.yml,file_integrity.yml,security_incident.yml,controller_test.yml
+      - REGIS_ALLOWED_PLAYBOOKS=os_patching.yml,container_image.yml,cis_hardening.yml,service_config.yml,web_application.yml,file_integrity.yml,security_incident.yml
       - REGIS_ANSIBLE_RUNNER_TOKEN=${REGIS_ANSIBLE_RUNNER_TOKEN}
       - REGIS_ANSIBLE_LISTENER_HOST=0.0.0.0
       - REGIS_ANSIBLE_LISTENER_PORT="8080"

@@ -35,27 +35,52 @@ ANSIBLE_TIMEOUT = int(
 )
 
 
-# Only these playbooks can be requested through the API.
-#
-# This prevents a caller from supplying something such as:
-#
-# ../../some-other-file.yml
-#
-# or executing arbitrary playbooks.
-ALLOWED_PLAYBOOKS = {
-    "os_patching.yml",
-    "container_image.yml",
-    "cis_hardening.yml",
-    "service_config.yml",
-    "web_application.yml",
-    "file_integrity.yml",
-    "security_incident.yml",
-    "controller_test.yml",
-    "controller_positive_test.yml",
-    "controller_stage1_fail_test.yml",
-    "controller_duplicate_test.yml",
-    "controller_approval_test.yml",
-}
+def load_allowed_playbooks():
+    """
+    Load the API playbook allowlist from REGIS_ALLOWED_PLAYBOOKS.
+
+    The allowlist is mandatory. Each entry must be a plain playbook basename;
+    path traversal and path-like values are rejected at startup.
+    """
+
+    raw = os.getenv(
+        "REGIS_ALLOWED_PLAYBOOKS",
+        ""
+    )
+
+    entries = [
+        entry.strip()
+        for entry in raw.split(",")
+        if entry.strip()
+    ]
+
+    if not entries:
+        raise RuntimeError(
+            "REGIS_ALLOWED_PLAYBOOKS must contain at least one playbook"
+        )
+
+    invalid = [
+        entry
+        for entry in entries
+        if (
+            entry in {".", ".."}
+            or os.path.basename(entry) != entry
+            or "/" in entry
+            or "\\" in entry
+        )
+    ]
+
+    if invalid:
+        raise RuntimeError(
+            "REGIS_ALLOWED_PLAYBOOKS contains invalid playbook names: "
+            + ", ".join(sorted(invalid))
+        )
+
+    return set(entries)
+
+
+# Only explicitly configured playbooks can be requested through the API.
+ALLOWED_PLAYBOOKS = load_allowed_playbooks()
 
 
 # ============================================================================
