@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regis Security Consulting
+Automated Cybersecurity Remediation Platform
 Nmap NSE Security Scan Orchestrator
 
 Architecture
@@ -117,6 +117,8 @@ import xml.etree.ElementTree as ET
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from common.finding import build_unified_finding
+from common.runtime import normalize_service_tier, utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -125,13 +127,13 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 # Keep the existing log path by default so the current Wazuh logcollector
 # configuration is not broken.
 LOCAL_LOG_PATH = os.getenv(
-    "REGIS_NMAP_RAW_LOG",
+    "NMAP_RAW_LOG",
     "/var/log/compliance_raw.log",
 )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
-    "/var/log/regis-security",
+    "LOG_DIR",
+    "/var/log/automated-remediation",
 )
 
 ERROR_LOG_PATH = os.path.join(
@@ -140,13 +142,13 @@ ERROR_LOG_PATH = os.path.join(
 )
 
 NMAP_BINARY = os.getenv(
-    "REGIS_NMAP_BINARY",
+    "NMAP_BINARY",
     "nmap",
 )
 
 NMAP_TIMEOUT = int(
     os.getenv(
-        "REGIS_NMAP_TIMEOUT",
+        "NMAP_TIMEOUT",
         "1800",
     )
 )
@@ -155,12 +157,6 @@ NMAP_TIMEOUT = int(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_FINDING_CLASSES = {
     "cve",
@@ -271,32 +267,6 @@ logger = setup_logging(False)
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
-
-def normalize_service_tier(
-    value: str,
-) -> str:
-
-    tier = str(
-        value or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; using STANDARD.",
-            value,
-        )
-
-        return "STANDARD"
-
-    return tier
-
 
 def clean_text(
     value: Any,
@@ -1267,58 +1237,21 @@ def normalize_results(
                     f"Nmap NSE {script_id}"
                 )
 
-            payload = {
-                "tenant_code":
-                    tenant_code,
-
-                "tenant_service_tier":
-                    service_tier,
-
-                "target_host":
-                    target_host,
-
-                "engine_source":
-                    "nmap_nse",
-
-                "finding_category":
-                    "vulnerability",
-
-                "finding_class":
-                    finding_class,
-
-                "finding_key":
-                    finding_key,
-
-                "finding_title":
-                    finding_title,
-
-                "lifecycle_status":
-                    "OPEN",
-
-                "detected_at":
-                    utc_now(),
-
-                "remediated_at":
-                    None,
-
-                "last_verified_at":
-                    None,
-
-                "compliance_result":
-                    None,
-
-                "severity_level":
-                    severity_level,
-
-                "severity_score":
-                    severity_score,
-
-                "engine_metadata":
-                    metadata,
-
-                "ai_analysis":
-                    None,
-            }
+            payload = build_unified_finding(
+                tenant_code=tenant_code,
+                tenant_service_tier=service_tier,
+                target_host=target_host,
+                engine_source="nmap_nse",
+                finding_category="vulnerability",
+                finding_class=finding_class,
+                finding_key=finding_key,
+                finding_title=finding_title,
+                detected_at=utc_now(),
+                compliance_result=None,
+                severity_level=severity_level,
+                severity_score=severity_score,
+                engine_metadata=metadata,
+            )
 
             findings.append(
                 payload
@@ -1344,7 +1277,8 @@ def run_scan_mode(
 ) -> int:
 
     service_tier = normalize_service_tier(
-        service_tier
+        service_tier,
+        logger,
     )
 
     logger.info(
@@ -1641,7 +1575,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Security Nmap NSE scanner orchestrator"
+            "Nmap NSE scanner orchestrator"
         )
     )
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regis Security Consulting
+Automated Cybersecurity Remediation Platform
 OpenVAS / Greenbone Scan Orchestrator and Webhook Listener
 
 ===========================================================================
@@ -136,6 +136,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from gvm.connections import UnixSocketConnection
 from gvm.protocols.gmp import Gmp
 
+from common.finding import build_unified_finding
+from common.runtime import VALID_SERVICE_TIERS, utc_now
 
 # ============================================================================
 # CONFIGURATION
@@ -143,44 +145,44 @@ from gvm.protocols.gmp import Gmp
 
 PORT = int(
     os.getenv(
-        "REGIS_OPENVAS_WEBHOOK_PORT",
+        "OPENVAS_WEBHOOK_PORT",
         "8080",
     )
 )
 
 LISTEN_HOST = os.getenv(
-    "REGIS_OPENVAS_WEBHOOK_HOST",
+    "OPENVAS_WEBHOOK_HOST",
     "127.0.0.1",
 )
 
 LOCAL_LOG_PATH = os.getenv(
-    "REGIS_SCANNER_RAW_LOG",
+    "OPENVAS_RAW_LOG",
     "/var/log/scanners_raw.log",
 )
 
 GVMD_SOCKET_PATH = os.getenv(
-    "REGIS_GVMD_SOCKET",
+    "GVMD_SOCKET",
     "/var/run/gvmd/gvmd.sock",
 )
 
 # Preserve the currently working GVMD authentication arrangement.
 OPENVAS_USER = os.getenv(
-    "REGIS_OPENVAS_USER",
+    "OPENVAS_USER",
 )
 
 OPENVAS_PASS = os.getenv(
-    "REGIS_OPENVAS_PASSWORD",
+    "OPENVAS_PASSWORD",
 )
 
 if not OPENVAS_USER or not OPENVAS_PASS:
     raise RuntimeError(
         "OpenVAS credentials are required. "
-        "Set REGIS_OPENVAS_USER and REGIS_OPENVAS_PASSWORD."
+        "Set OPENVAS_USER and OPENVAS_PASSWORD."
     )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
-    "/var/log/regis-security",
+    "LOG_DIR",
+    "/var/log/automated-remediation",
 )
 
 LOG_PATH = os.path.join(
@@ -195,14 +197,14 @@ ERROR_LOG_PATH = os.path.join(
 
 VERIFY_POLL_INTERVAL = int(
     os.getenv(
-        "REGIS_OPENVAS_VERIFY_POLL_INTERVAL",
+        "OPENVAS_VERIFY_POLL_INTERVAL",
         "15",
     )
 )
 
 VERIFY_TIMEOUT = int(
     os.getenv(
-        "REGIS_OPENVAS_VERIFY_TIMEOUT",
+        "OPENVAS_VERIFY_TIMEOUT",
         "3600",
     )
 )
@@ -213,7 +215,7 @@ VERIFY_TIMEOUT = int(
 # rather than being ingested as a brand-new scan.
 VERIFY_CALLBACK_SUPPRESSION_SECONDS = int(
     os.getenv(
-        "REGIS_OPENVAS_VERIFY_SUPPRESSION_SECONDS",
+        "OPENVAS_VERIFY_SUPPRESSION_SECONDS",
         "7200",
     )
 )
@@ -222,12 +224,6 @@ VERIFY_CALLBACK_SUPPRESSION_SECONDS = int(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_OPENVAS_FINDING_CLASSES = {
     "cve",
@@ -398,13 +394,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
 
 def clean_text(
     value: Any,
@@ -1344,59 +1333,21 @@ def normalise_result(
         )
     }
 
-    payload = {
-        "tenant_code":
-            tenant_code,
-
-        "tenant_service_tier":
-            service_tier,
-
-        "target_host":
-            target_host,
-
-        "engine_source":
-            "openvas",
-
-        "finding_category":
-            "vulnerability",
-
-        "finding_class":
-            finding_class,
-
-        "finding_key":
-            finding_key,
-
-        "finding_title":
-            vuln_name,
-
-        "lifecycle_status":
-            "OPEN",
-
-        "detected_at":
-            utc_now(),
-
-        "remediated_at":
-            None,
-
-        "last_verified_at":
-            None,
-
-        "compliance_result":
-            None,
-
-        "severity_level":
-            severity_level,
-
-        "severity_score":
-            severity_score,
-
-        "engine_metadata":
-            metadata,
-
-        # Ollama enrichment has not yet occurred.
-        "ai_analysis":
-            None,
-    }
+    payload = build_unified_finding(
+        tenant_code=tenant_code,
+        tenant_service_tier=service_tier,
+        target_host=target_host,
+        engine_source="openvas",
+        finding_category="vulnerability",
+        finding_class=finding_class,
+        finding_key=finding_key,
+        finding_title=vuln_name,
+        detected_at=utc_now(),
+        compliance_result=None,
+        severity_level=severity_level,
+        severity_score=severity_score,
+        engine_metadata=metadata,
+    )
 
     return payload
 
@@ -1995,7 +1946,7 @@ class OpenVASUnifiedHandler(
                         "ok",
 
                     "service":
-                        "regis-openvas-orchestrator",
+                        "openvas-orchestrator",
 
                     "mode":
                         "webhook",
@@ -2186,7 +2137,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Security OpenVAS scanner orchestrator"
+            "OpenVAS scanner orchestrator"
         )
     )
 

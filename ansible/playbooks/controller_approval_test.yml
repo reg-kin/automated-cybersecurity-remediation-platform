@@ -1,5 +1,5 @@
 ---
-- name: Regis approval-gated remediation test
+- name: Approval-gated remediation test
   hosts: all
   gather_facts: false
   become: false

@@ -1,5 +1,5 @@
 ---
-- name: Regis remediation - security_incident
+- name: Automated remediation - security_incident
   hosts: all
   become: true
   gather_facts: true

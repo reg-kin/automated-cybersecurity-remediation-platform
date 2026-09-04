@@ -1,5 +1,5 @@
 ---
-- name: Regis remediation - os_patching
+- name: Automated remediation - os_patching
   hosts: all
   become: true
   gather_facts: true

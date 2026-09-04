@@ -1,18 +1,18 @@
 [Unit]
-Description=Regis Security Remediation Controller API
+Description=Automated Remediation Controller API
 After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 
-WorkingDirectory=/opt/regis-security
+WorkingDirectory=/opt/automated-remediation
 
-EnvironmentFile=/etc/regis-controller.env
+EnvironmentFile=/etc/remediation-controller.env
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/opt/regis-security
+Environment=PYTHONPATH=/opt/automated-remediation
 
-ExecStart=/opt/regis-security/venv/bin/python -m remediation.controller_api
+ExecStart=/opt/automated-remediation/venv/bin/python -m remediation.controller_api
 
 Restart=on-failure
 RestartSec=5

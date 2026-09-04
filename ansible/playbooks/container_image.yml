@@ -1,5 +1,5 @@
 ---
-- name: Regis remediation - container_image
+- name: Automated remediation - container_image
   hosts: all
   become: true
   gather_facts: true

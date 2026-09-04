@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import hmac
 import ipaddress
 import json
 import os
@@ -18,70 +19,95 @@ app = Flask(__name__)
 # ============================================================================
 
 PLAYBOOK_DIR = os.getenv(
-    "REGIS_ANSIBLE_PLAYBOOK_DIR",
+    "ANSIBLE_PLAYBOOK_DIR",
     ""
 )
 
 RUNNER_TOKEN = os.getenv(
-    "REGIS_ANSIBLE_RUNNER_TOKEN",
+    "ANSIBLE_RUNNER_TOKEN",
     ""
 )
 
 ANSIBLE_TIMEOUT = int(
     os.getenv(
-        "REGIS_ANSIBLE_TIMEOUT",
+        "ANSIBLE_TIMEOUT",
         "1800"
     )
 )
 
 
-# Only these playbooks can be requested through the API.
-#
-# This prevents a caller from supplying something such as:
-#
-# ../../some-other-file.yml
-#
-# or executing arbitrary playbooks.
-ALLOWED_PLAYBOOKS = {
-    "os_patching.yml",
-    "container_image.yml",
-    "cis_hardening.yml",
-    "service_config.yml",
-    "web_application.yml",
-    "file_integrity.yml",
-    "security_incident.yml",
-    "controller_test.yml",
-    "controller_positive_test.yml",
-    "controller_stage1_fail_test.yml",
-    "controller_duplicate_test.yml",
-    "controller_approval_test.yml",
-}
+def load_allowed_playbooks():
+    """
+    Load the API playbook allowlist from ALLOWED_PLAYBOOKS.
+
+    The allowlist is mandatory. Each entry must be a plain playbook basename;
+    path traversal and path-like values are rejected at startup.
+    """
+
+    raw = os.getenv(
+        "ALLOWED_PLAYBOOKS",
+        ""
+    )
+
+    entries = [
+        entry.strip()
+        for entry in raw.split(",")
+        if entry.strip()
+    ]
+
+    if not entries:
+        raise RuntimeError(
+            "ALLOWED_PLAYBOOKS must contain at least one playbook"
+        )
+
+    invalid = [
+        entry
+        for entry in entries
+        if (
+            entry in {".", ".."}
+            or os.path.basename(entry) != entry
+            or "/" in entry
+            or "\\" in entry
+        )
+    ]
+
+    if invalid:
+        raise RuntimeError(
+            "ALLOWED_PLAYBOOKS contains invalid playbook names: "
+            + ", ".join(sorted(invalid))
+        )
+
+    return set(entries)
+
+
+# Only explicitly configured playbooks can be requested through the API.
+ALLOWED_PLAYBOOKS = load_allowed_playbooks()
 
 
 # ============================================================================
 # AUTHENTICATION
 # ============================================================================
 
+if not RUNNER_TOKEN or not RUNNER_TOKEN.strip():
+    raise RuntimeError(
+        "ANSIBLE_RUNNER_TOKEN must be configured with a non-empty value"
+    )
+
+
 def authorised():
-    """
-    Validate the optional Bearer token.
-
-    If REGIS_ANSIBLE_RUNNER_TOKEN is empty, authentication is disabled.
-
-    In production, set the token.
-    """
-
-    if not RUNNER_TOKEN:
-        return True
+    """Validate the mandatory Bearer token."""
 
     auth_header = request.headers.get(
         "Authorization",
-        ""
+        "",
     )
 
     expected = f"Bearer {RUNNER_TOKEN}"
 
-    return auth_header == expected
+    return hmac.compare_digest(
+        auth_header,
+        expected,
+    )
 
 
 # ============================================================================
@@ -236,7 +262,7 @@ def health():
 
     return jsonify({
         "status": "ok",
-        "service": "regis-ansible-runner-webhook",
+        "service": "ansible-runner",
         "playbook_directory": PLAYBOOK_DIR,
         "allowed_playbooks": sorted(
             ALLOWED_PLAYBOOKS
@@ -577,12 +603,12 @@ if __name__ == "__main__":
 
     app.run(
         host=os.getenv(
-            "REGIS_ANSIBLE_LISTENER_HOST",
+            "ANSIBLE_RUNNER_HOST",
             "127.0.0.1"
         ),
         port=int(
             os.getenv(
-                "REGIS_ANSIBLE_LISTENER_PORT",
+                "ANSIBLE_RUNNER_PORT",
                 "8080"
             )
         ),

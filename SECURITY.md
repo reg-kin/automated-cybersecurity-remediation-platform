@@ -4,7 +4,7 @@
 
 Please do not report security vulnerabilities through public GitHub issues.
 
-If you discover a vulnerability affecting Regis Security Remediation Platform,
+If you discover a vulnerability affecting Automated Cybersecurity Remediation Platform,
 report it privately to the project maintainer.
 
 Do not include production credentials, customer information, API tokens,

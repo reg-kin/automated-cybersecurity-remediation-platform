@@ -1,5 +1,5 @@
 ---
-- name: Regis remediation - cis_hardening
+- name: Automated remediation - cis_hardening
   hosts: all
   become: true
   gather_facts: true

@@ -16,7 +16,7 @@ Example:
   "rule_id": 7,
   "tenant_code": "CUSTOMER_A",
   "target_host": "10.20.30.15",
-  "engine_source": "wazuh",
+  "engine_source": "wazuh_vulnerability",
   "finding_class": "package_vulnerability",
   "finding_key": "CVE-2023-4863",
   "finding_title": "Vulnerable libwebp package",

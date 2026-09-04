@@ -1,7 +1,7 @@
 BEGIN;
 
 -- ============================================================
--- Regis Security
+-- Automated Cybersecurity Remediation Platform
 -- Deterministic Remediation Routing Hardening
 --
 -- Purpose:

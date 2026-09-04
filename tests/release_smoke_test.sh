@@ -11,17 +11,17 @@ set -Eeuo pipefail
 #   ./tests/release_smoke_test.sh
 #
 # Optional environment variables:
-#   REGIS_PG_CONTAINER   PostgreSQL container name
-#   REGIS_PG_USER        PostgreSQL user
-#   REGIS_TEST_DB        Temporary test database name
+#   PG_CONTAINER   PostgreSQL container name
+#   PG_USER        PostgreSQL user
+#   TEST_DB        Temporary test database name
 #
 # Defaults reflect the current tested development environment.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-PG_CONTAINER="${REGIS_PG_CONTAINER:-portal-datastore}"
-PG_USER="${REGIS_PG_USER:-telemetry_admin}"
-TEST_DB="${REGIS_TEST_DB:-regis_release_smoke_test}"
+PG_CONTAINER="${PG_CONTAINER:-portal-datastore}"
+PG_USER="${PG_USER:-telemetry_admin}"
+TEST_DB="${TEST_DB:-regis_release_smoke_test}"
 
 EXPECTED_FINDING_CLASSES=43
 EXPECTED_GENERIC_RULES=43
@@ -75,7 +75,7 @@ echo
 # 1. Repository structure
 # ---------------------------------------------------------------------------
 
-echo "[1/8] Checking required repository files..."
+echo "[1/10] Checking required repository files..."
 
 REQUIRED_FILES=(
     "README.md"
@@ -98,7 +98,7 @@ pass "Required repository files are present."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[2/8] Running catalogue consistency check..."
+echo "[2/10] Running catalogue consistency check..."
 
 python3 tests/check_catalogue.py
 
@@ -109,7 +109,7 @@ pass "Catalogue consistency check passed."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[3/8] Checking Git whitespace integrity..."
+echo "[3/10] Checking Git whitespace integrity..."
 
 git diff --check
 
@@ -120,7 +120,7 @@ pass "No Git whitespace errors detected."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[4/8] Checking tracked files for obvious literal credentials..."
+echo "[4/10] Checking tracked files for obvious literal credentials..."
 
 if git grep -nEI \
     '([Pp]assword|[Pp]asswd|[Tt]oken|[Ss]ecret|[Aa]pi[_-]?[Kk]ey)[[:space:]]*[:=][[:space:]]*["'\''][^"'\'']{4,}["'\'']'
@@ -131,11 +131,154 @@ fi
 pass "No obvious tracked literal credentials detected."
 
 # ---------------------------------------------------------------------------
-# 5. PostgreSQL availability
+# 5. Release-critical regression tests
 # ---------------------------------------------------------------------------
 
 echo
-echo "[5/8] Checking PostgreSQL test environment..."
+echo "[5/10] Running release-critical regression tests..."
+
+REGRESSION_TESTS=(
+    "tests/test_remediation_controller_runtime.py"
+    "tests/test_deferred_verification_runtime.py"
+    "tests/test_ansible_runner_allowlist.py"
+    "tests/test_verification_gateway_security.py"
+    "tests/test_api_authentication.py"
+    "tests/test_unified_finding_schema.py"
+    "tests/test_nuclei_normalization.py"
+    "tests/test_trivy_normalization.py"
+    "tests/test_nmap_normalization.py"
+    "tests/test_lynis_normalization.py"
+    "tests/test_wazuh_sca_normalization.py"
+    "tests/test_wazuh_vulnerability_normalization.py"
+    "tests/test_openvas_normalization.py"
+)
+
+for test_file in "${REGRESSION_TESTS[@]}"; do
+    [[ -f "${test_file}" ]] \
+        || fail "Required regression test missing: ${test_file}"
+
+    echo "  Running ${test_file}"
+    python3 "${test_file}"
+done
+
+pass "Release-critical regression tests passed."
+
+# ---------------------------------------------------------------------------
+# 6. Deployment contract checks
+# ---------------------------------------------------------------------------
+
+echo
+echo "[6/10] Checking deployment contracts..."
+
+CONTROLLER_API="remediation/controller_api.py"
+DISPATCHER="verification/verification_dispatcher.py"
+COMPOSE="deployment/docker/n8n-ansible/docker-compose.yml"
+ENRICHER_SERVICE="deployment/systemd/ollama-wazuh-enricher.service"
+ENRICHER_OVERRIDE="deployment/systemd/ollama-wazuh-enricher.service.d/override.conf"
+CONTROLLER_ENV="deployment/systemd/env/remediation-controller.env.example"
+SCANNER_ENV="deployment/systemd/env/verification-scanner.env.example"
+WAZUH_INDEXER_ENV="deployment/systemd/env/wazuh-indexer.env.example"
+
+for file in \
+    "${CONTROLLER_API}" \
+    "${DISPATCHER}" \
+    "${COMPOSE}" \
+    "${ENRICHER_SERVICE}" \
+    "${CONTROLLER_ENV}" \
+    "${SCANNER_ENV}" \
+    "${WAZUH_INDEXER_ENV}"
+do
+    [[ -f "${file}" ]] || fail "Required deployment contract file missing: ${file}"
+done
+
+# Public scanner configuration names must remain neutral. This deliberately
+# checks production scanner sources and deployment examples only; obsolete
+# names retained by negative security tests and non-environment integration
+# identifiers are outside this contract.
+DEPRECATED_SCANNER_ENV_PATTERN='REGIS_(NMAP|LYNIS|COMPLIANCE|LOG_DIR|WAZUH|SCA|NUCLEI|OPENVAS|GVMD|SCANNER|TRIVY)_[A-Z0-9_]+'
+
+if grep -REn     "${DEPRECATED_SCANNER_ENV_PATTERN}"     scanner_orchestrators     deployment/systemd/env
+then
+    fail "Deprecated REGIS_* scanner configuration name detected."
+fi
+
+for expected in     'NUCLEI_BINARY=/usr/bin/nuclei'     'TRIVY_BINARY=/usr/bin/trivy'     'NMAP_BINARY=/usr/bin/nmap'
+do
+    grep -Fxq "${expected}" "${SCANNER_ENV}"         || fail "Scanner verification environment example is missing: ${expected}"
+done
+
+grep -Fxq 'WAZUH_INDEXER_USER=CHANGE_ME' "${WAZUH_INDEXER_ENV}"     || fail "Wazuh Indexer environment example is missing WAZUH_INDEXER_USER."
+
+grep -Fxq 'WAZUH_INDEXER_PASSWORD=CHANGE_ME' "${WAZUH_INDEXER_ENV}"     || fail "Wazuh Indexer environment example is missing WAZUH_INDEXER_PASSWORD."
+
+# Controller bind configuration must remain externally configurable while
+# retaining the documented loopback deployment default.
+grep -Fq '"CONTROLLER_HOST"' "${CONTROLLER_API}" \
+    || fail "Controller no longer consumes CONTROLLER_HOST."
+
+grep -Fq '"CONTROLLER_PORT"' "${CONTROLLER_API}" \
+    || fail "Controller no longer consumes CONTROLLER_PORT."
+
+grep -Fxq 'CONTROLLER_HOST=127.0.0.1' "${CONTROLLER_ENV}" \
+    || fail "Controller environment example must default to loopback."
+
+grep -Fxq 'CONTROLLER_PORT=9000' "${CONTROLLER_ENV}" \
+    || fail "Controller environment example has the wrong controller port."
+
+# The reference Compose deployment exposes host port 8081 while the
+# Ansible Runner container listens on port 8080.
+grep -Fq '"127.0.0.1:8081:8080"' "${COMPOSE}" \
+    || fail "Ansible Runner host/container port mapping is incorrect."
+
+EXPECTED_PLAYBOOKS="os_patching.yml,container_image.yml,cis_hardening.yml,service_config.yml,web_application.yml,file_integrity.yml,security_incident.yml"
+
+grep -Fq "ALLOWED_PLAYBOOKS=${EXPECTED_PLAYBOOKS}" "${COMPOSE}" \
+    || fail "Production Ansible playbook allowlist is missing or incorrect."
+
+if grep -Eq 'ALLOWED_PLAYBOOKS=.*controller_.*\.yml' "${COMPOSE}"; then
+    fail "Controller test playbook appears in the production Ansible allowlist."
+fi
+
+# The repository root is the Python package import root for RQ workers.
+grep -Fq \
+    'ExecStart=/usr/bin/rq worker ai-enrichment --path /opt/automated-remediation' \
+    "${ENRICHER_SERVICE}" \
+    || fail "AI enrichment worker uses the wrong RQ import path."
+
+[[ ! -e "${ENRICHER_OVERRIDE}" ]] \
+    || fail "Obsolete AI enrichment systemd override has been restored."
+
+# Stage-2 dispatcher support is intentionally limited to the seven
+# implemented scanner orchestrators.
+declare -A EXPECTED_ORCHESTRATORS=(
+    [openvas]="/opt/automated-remediation/scanner_orchestrators/openvas_orchestrator.py"
+    [nmap_nse]="/opt/automated-remediation/scanner_orchestrators/nmap_orchestrator.py"
+    [wazuh_vulnerability]="/opt/automated-remediation/scanner_orchestrators/wazuh_vuln_orchestrator.py"
+    [wazuh_sca]="/opt/automated-remediation/scanner_orchestrators/wazuh_sca_orchestrator.py"
+    [lynis]="/opt/automated-remediation/scanner_orchestrators/lynis_orchestrator.py"
+    [nuclei]="/opt/automated-remediation/scanner_orchestrators/nuclei_orchestrator.py"
+    [trivy]="/opt/automated-remediation/scanner_orchestrators/trivy_orchestrator.py"
+)
+
+for engine in "${!EXPECTED_ORCHESTRATORS[@]}"; do
+    orchestrator="${EXPECTED_ORCHESTRATORS[$engine]}"
+
+    grep -Fq "'${engine}':os.getenv(" "${DISPATCHER}" \
+        || fail "Verification dispatcher is missing engine: ${engine}"
+
+    grep -F "'${engine}':os.getenv(" "${DISPATCHER}" \
+        | grep -Fq "'${orchestrator}'" \
+        || fail "Verification dispatcher has the wrong orchestrator path for ${engine}"
+done
+
+pass "Deployment contracts are consistent."
+
+# ---------------------------------------------------------------------------
+# 7. PostgreSQL availability
+# ---------------------------------------------------------------------------
+
+echo
+echo "[7/10] Checking PostgreSQL test environment..."
 
 command -v docker >/dev/null 2>&1 \
     || fail "docker command is not available."
@@ -154,11 +297,11 @@ docker exec -i "${PG_CONTAINER}" \
 pass "PostgreSQL container is reachable."
 
 # ---------------------------------------------------------------------------
-# 6. Clean database reconstruction
+# 8. Clean database reconstruction
 # ---------------------------------------------------------------------------
 
 echo
-echo "[6/8] Reconstructing temporary database..."
+echo "[8/10] Reconstructing temporary database..."
 
 docker exec -i "${PG_CONTAINER}" \
     psql \
@@ -191,11 +334,11 @@ done
 pass "Database reconstruction completed successfully."
 
 # ---------------------------------------------------------------------------
-# 7. Database invariant checks
+# 9. Database invariant checks
 # ---------------------------------------------------------------------------
 
 echo
-echo "[7/8] Checking reconstructed database invariants..."
+echo "[9/10] Checking reconstructed database invariants..."
 
 finding_class_count="$(
     docker exec -i "${PG_CONTAINER}" \
@@ -285,11 +428,11 @@ echo "  orphan_rules:    ${orphan_rule_count}"
 pass "Database invariants are correct."
 
 # ---------------------------------------------------------------------------
-# 8. Git release/tag information
+# 10. Git release/tag information
 # ---------------------------------------------------------------------------
 
 echo
-echo "[8/8] Checking Git release information..."
+echo "[10/10] Checking Git release information..."
 
 commit="$(git rev-parse --short HEAD)"
 echo "  commit: ${commit}"

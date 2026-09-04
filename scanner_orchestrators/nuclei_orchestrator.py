@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regis Security Consulting
+Automated Cybersecurity Remediation Platform
 Nuclei Security Scan Orchestrator
 
 PURPOSE
@@ -129,24 +129,27 @@ from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
+from common.finding import build_unified_finding
+from common.runtime import normalize_service_tier, utc_now
+from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
 NUCLEI_BINARY = os.getenv(
-    "REGIS_NUCLEI_BINARY",
+    "NUCLEI_BINARY",
     "nuclei",
 )
 
 LOCAL_LOG_PATH = os.getenv(
-    "REGIS_NUCLEI_RAW_LOG",
+    "NUCLEI_RAW_LOG",
     "/var/log/scanners_raw.log",
 )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
-    "/var/log/regis-security",
+    "LOG_DIR",
+    "/var/log/automated-remediation",
 )
 
 ERROR_LOG_PATH = os.path.join(
@@ -156,18 +159,18 @@ ERROR_LOG_PATH = os.path.join(
 
 NUCLEI_TIMEOUT = int(
     os.getenv(
-        "REGIS_NUCLEI_TIMEOUT",
+        "NUCLEI_TIMEOUT",
         "1800",
     )
 )
 
 DEFAULT_TAGS = os.getenv(
-    "REGIS_NUCLEI_DEFAULT_TAGS",
+    "NUCLEI_DEFAULT_TAGS",
     "cve,exposed,tech",
 )
 
 DEFAULT_SEVERITIES = os.getenv(
-    "REGIS_NUCLEI_DEFAULT_SEVERITIES",
+    "NUCLEI_DEFAULT_SEVERITIES",
     "critical,high,medium,low",
 )
 
@@ -175,12 +178,6 @@ DEFAULT_SEVERITIES = os.getenv(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_NUCLEI_CLASSES = {
     "web_application_vulnerability",
@@ -303,32 +300,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
-
-def normalize_service_tier(
-    value: Any,
-) -> str:
-
-    tier = str(
-        value or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; defaulting to STANDARD.",
-            value,
-        )
-
-        return "STANDARD"
-
-    return tier
-
 
 def first_non_empty(
     *values: Any,
@@ -1354,19 +1325,7 @@ def validate_unified_finding(
     payload: Dict[str, Any],
 ) -> None:
 
-    required = (
-        "tenant_code",
-        "tenant_service_tier",
-        "target_host",
-        "engine_source",
-        "finding_category",
-        "finding_class",
-        "finding_key",
-        "finding_title",
-        "lifecycle_status",
-    )
-
-    for field in required:
+    for field in REQUIRED_UNIFIED_FINDING_FIELDS:
 
         if payload.get(
             field
@@ -1590,59 +1549,21 @@ def normalize_finding(
         )
     }
 
-    payload = {
-        "tenant_code":
-            tenant_code,
-
-        "tenant_service_tier":
-            service_tier,
-
-        "target_host":
-            target_host,
-
-        "engine_source":
-            "nuclei",
-
-        "finding_category":
-            "vulnerability",
-
-        "finding_class":
-            finding_class,
-
-        "finding_key":
-            finding_key,
-
-        "finding_title":
-            title,
-
-        "lifecycle_status":
-            "OPEN",
-
-        "detected_at":
-            utc_now(),
-
-        "remediated_at":
-            None,
-
-        "last_verified_at":
-            None,
-
-        "compliance_result":
-            None,
-
-        "severity_level":
-            severity_level,
-
-        "severity_score":
-            severity_score,
-
-        "engine_metadata":
-            metadata,
-
-        # Ollama runs after the scanner orchestrator.
-        "ai_analysis":
-            None,
-    }
+    payload = build_unified_finding(
+        tenant_code=tenant_code,
+        tenant_service_tier=service_tier,
+        target_host=target_host,
+        engine_source="nuclei",
+        finding_category="vulnerability",
+        finding_class=finding_class,
+        finding_key=finding_key,
+        finding_title=title,
+        detected_at=utc_now(),
+        compliance_result=None,
+        severity_level=severity_level,
+        severity_score=severity_score,
+        engine_metadata=metadata,
+    )
 
     validate_unified_finding(
         payload
@@ -1995,7 +1916,8 @@ def run_scan_mode(
         )
 
     service_tier = normalize_service_tier(
-        service_tier
+        service_tier,
+        logger,
     )
 
     task_name = clean_string(
@@ -2425,7 +2347,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Security Nuclei scanner orchestrator"
+            "Nuclei scanner orchestrator"
         )
     )
 

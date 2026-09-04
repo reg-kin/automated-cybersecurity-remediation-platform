@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regis Security Consulting
+Automated Cybersecurity Remediation Platform
 Lynis Compliance / Hardening Orchestrator
 
 OPERATING MODES
@@ -114,24 +114,27 @@ import sys
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
 
+from common.finding import build_unified_finding as build_common_unified_finding
+from common.runtime import normalize_service_tier, utc_now
+from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
 LYNIS_REPORT_PATH = os.getenv(
-    "REGIS_LYNIS_REPORT_PATH",
+    "LYNIS_REPORT_PATH",
     "/var/log/lynis-report.dat",
 )
 
 LOCAL_COMPLIANCE_LOG = os.getenv(
-    "REGIS_COMPLIANCE_RAW_LOG",
+    "COMPLIANCE_RAW_LOG",
     "/var/log/compliance_raw.log",
 )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
-    "/var/log/regis-security",
+    "LOG_DIR",
+    "/var/log/automated-remediation",
 )
 
 ERROR_LOG_PATH = os.path.join(
@@ -140,19 +143,19 @@ ERROR_LOG_PATH = os.path.join(
 )
 
 LYNIS_BINARY = os.getenv(
-    "REGIS_LYNIS_BINARY",
+    "LYNIS_BINARY",
     "lynis",
 )
 
 LYNIS_TIMEOUT = int(
     os.getenv(
-        "REGIS_LYNIS_TIMEOUT",
+        "LYNIS_TIMEOUT",
         "900",
     )
 )
 
 DEFAULT_TASK_NAME = os.getenv(
-    "REGIS_LYNIS_TASK_NAME",
+    "LYNIS_TASK_NAME",
     "Lynis System Audit",
 )
 
@@ -160,12 +163,6 @@ DEFAULT_TASK_NAME = os.getenv(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_LYNIS_CLASSES = {
     "lynis_hardening",
@@ -275,39 +272,6 @@ logger = setup_logging()
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-    """
-    Return current UTC timestamp as ISO-8601.
-    """
-
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
-
-def normalize_service_tier(
-    value: str,
-) -> str:
-    """
-    Normalise customer service tier.
-    """
-
-    tier = str(
-        value or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; using STANDARD.",
-            value,
-        )
-
-        return "STANDARD"
-
-    return tier
-
 
 def normalize_filter_mode(
     value: Optional[str],
@@ -878,19 +842,7 @@ def validate_unified_finding(
     Validate the part of UnifiedSecurityFinding owned by Lynis.
     """
 
-    required = (
-        "tenant_code",
-        "tenant_service_tier",
-        "target_host",
-        "engine_source",
-        "finding_category",
-        "finding_class",
-        "finding_key",
-        "finding_title",
-        "lifecycle_status",
-    )
-
-    for field in required:
+    for field in REQUIRED_UNIFIED_FINDING_FIELDS:
 
         if payload.get(field) in (
             None,
@@ -987,89 +939,53 @@ def build_unified_finding(
         description,
     )
 
-    payload = {
-        "tenant_code":
-            tenant_code,
+    metadata = {
+        "task_name":
+            task_name,
 
-        "tenant_service_tier":
-            service_tier,
-
-        "target_host":
-            target_host,
-
-        "engine_source":
-            ENGINE_SOURCE,
-
-        "finding_category":
-            FINDING_CATEGORY,
-
-        "finding_class":
-            finding_class,
-
-        "finding_key":
+        # This is the scanner-native stable identifier and is useful
+        # both for remediation rules and Stage 2 evidence.
+        "lynis_test_id":
             finding_id,
 
-        "finding_title":
-            (
-                f"Lynis "
-                f"{finding_type.capitalize()} "
-                f"({finding_id})"
+        "finding_type":
+            finding_type,
+
+        "description":
+            description,
+
+        "additional_fields":
+            parsed.get(
+                "additional_fields",
+                [],
             ),
 
-        "lifecycle_status":
-            "OPEN",
-
-        "detected_at":
-            utc_now(),
-
-        "remediated_at":
-            None,
-
-        "last_verified_at":
-            None,
-
-        "compliance_result":
-            "FAIL",
-
-        # Lynis recommendations are not CVSS-scored vulnerabilities.
-        "severity_level":
-            None,
-
-        "severity_score":
-            None,
-
-        "engine_metadata": {
-            "task_name":
-                task_name,
-
-            # This is the scanner-native stable identifier and is useful
-            # both for remediation rules and Stage 2 evidence.
-            "lynis_test_id":
-                finding_id,
-
-            "finding_type":
-                finding_type,
-
-            "description":
-                description,
-
-            "additional_fields":
-                parsed.get(
-                    "additional_fields",
-                    [],
-                ),
-
-            "raw_record":
-                parsed.get(
-                    "raw_record",
-                    "",
-                ),
-        },
-
-        # The scanner comes before the Ollama enrichment worker.
-        "ai_analysis":
-            None,
+        "raw_record":
+            parsed.get(
+                "raw_record",
+                "",
+            ),
     }
+
+    payload = build_common_unified_finding(
+        tenant_code=tenant_code,
+        tenant_service_tier=service_tier,
+        target_host=target_host,
+        engine_source=ENGINE_SOURCE,
+        finding_category=FINDING_CATEGORY,
+        finding_class=finding_class,
+        finding_key=finding_id,
+        finding_title=(
+            f"Lynis "
+            f"{finding_type.capitalize()} "
+            f"({finding_id})"
+        ),
+        detected_at=utc_now(),
+        compliance_result="FAIL",
+        severity_level=None,
+        severity_score=None,
+        engine_metadata=metadata,
+    )
 
     validate_unified_finding(
         payload
@@ -1114,7 +1030,8 @@ def run_scan_mode(
         )
 
     service_tier = normalize_service_tier(
-        service_tier
+        service_tier,
+        logger,
     )
 
     filter_mode = normalize_filter_mode(
@@ -1440,7 +1357,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Lynis compliance/hardening orchestrator"
+            "Lynis compliance/hardening orchestrator"
         )
     )
 

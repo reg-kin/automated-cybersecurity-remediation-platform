@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regis Security Consulting
+Automated Cybersecurity Remediation Platform
 Wazuh Vulnerability Detection Orchestrator
 
 PURPOSE
@@ -107,6 +107,10 @@ import uuid
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from common.finding import build_unified_finding
+from common.runtime import normalize_service_tier, utc_now
+from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
+
 import requests
 import urllib3
 
@@ -116,28 +120,28 @@ import urllib3
 # ============================================================================
 
 INDEXER_URL = os.getenv(
-    "REGIS_WAZUH_INDEXER_URL",
+    "WAZUH_INDEXER_URL",
     "https://127.0.0.1:9200",
 )
 
 INDEX_PATTERN = os.getenv(
-    "REGIS_WAZUH_VULN_INDEX",
+    "WAZUH_VULN_INDEX",
     "wazuh-states-vulnerabilities-*",
 )
 
 CREDENTIALS_FILE = os.getenv(
-    "REGIS_WAZUH_CREDENTIALS_FILE",
-    "/opt/regis-security/scanner_orchestrators/api_keys.json",
+    "WAZUH_CREDENTIALS_FILE",
+    "/opt/automated-remediation/scanner_orchestrators/api_keys.json",
 )
 
 DATA_LOG_PATH = os.getenv(
-    "REGIS_SCANNER_RAW_LOG",
+    "WAZUH_VULN_RAW_LOG",
     "/var/log/scanners_raw.log",
 )
 
 LOG_DIR = os.getenv(
-    "REGIS_LOG_DIR",
-    "/var/log/regis-security",
+    "LOG_DIR",
+    "/var/log/automated-remediation",
 )
 
 ERROR_LOG_PATH = os.path.join(
@@ -147,23 +151,23 @@ ERROR_LOG_PATH = os.path.join(
 
 REQUEST_TIMEOUT = int(
     os.getenv(
-        "REGIS_WAZUH_INDEXER_TIMEOUT",
+        "WAZUH_INDEXER_TIMEOUT",
         "30",
     )
 )
 
 PAGE_SIZE = int(
     os.getenv(
-        "REGIS_WAZUH_VULN_PAGE_SIZE",
+        "WAZUH_VULN_PAGE_SIZE",
         os.getenv(
-            "REGIS_WAZUH_VULN_MAX_RESULTS",
+            "WAZUH_VULN_MAX_RESULTS",
             "5000",
         ),
     )
 )
 
 SCROLL_TTL = os.getenv(
-    "REGIS_WAZUH_VULN_SCROLL_TTL",
+    "WAZUH_VULN_SCROLL_TTL",
     "2m",
 )
 
@@ -171,12 +175,6 @@ SCROLL_TTL = os.getenv(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 VALID_SEVERITIES = {
     "CRITICAL",
@@ -291,16 +289,6 @@ urllib3.disable_warnings(
 # GENERAL HELPERS
 # ============================================================================
 
-def utc_now() -> str:
-    """
-    Return the current UTC time as an ISO-8601 timestamp.
-    """
-
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
-
 def get_session() -> requests.Session:
     """
     Create the HTTP session used for Wazuh Indexer queries.
@@ -323,15 +311,15 @@ def load_credentials():
 
     Credential precedence:
 
-    1. REGIS_WAZUH_INDEXER_USER and REGIS_WAZUH_INDEXER_PASSWORD
+    1. WAZUH_INDEXER_USER and WAZUH_INDEXER_PASSWORD
     2. Optional local credentials file defined by CREDENTIALS_FILE
 
     No hard-coded production credentials or usable default password are
     permitted.
     """
 
-    env_user = os.getenv("REGIS_WAZUH_INDEXER_USER", "").strip()
-    env_password = os.getenv("REGIS_WAZUH_INDEXER_PASSWORD", "").strip()
+    env_user = os.getenv("WAZUH_INDEXER_USER", "").strip()
+    env_password = os.getenv("WAZUH_INDEXER_PASSWORD", "").strip()
 
     if env_user and env_password:
         return env_user, env_password
@@ -376,30 +364,10 @@ def load_credentials():
 
     raise RuntimeError(
         "Wazuh Indexer credentials are not configured. "
-        "Set REGIS_WAZUH_INDEXER_USER and "
-        "REGIS_WAZUH_INDEXER_PASSWORD, or provide a valid "
+        "Set WAZUH_INDEXER_USER and "
+        "WAZUH_INDEXER_PASSWORD, or provide a valid "
         "local credentials file."
     )
-
-
-def normalize_service_tier(
-    value: str,
-) -> str:
-
-    tier = str(
-        value or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; using STANDARD.",
-            value,
-        )
-
-        return "STANDARD"
-
-    return tier
 
 
 def normalize_severity_level(
@@ -1126,19 +1094,7 @@ def validate_unified_finding(
     The enrichment worker and PostgreSQL provide additional validation.
     """
 
-    required = (
-        "tenant_code",
-        "tenant_service_tier",
-        "target_host",
-        "engine_source",
-        "finding_category",
-        "finding_class",
-        "finding_key",
-        "finding_title",
-        "lifecycle_status",
-    )
-
-    for field in required:
+    for field in REQUIRED_UNIFIED_FINDING_FIELDS:
 
         if payload.get(
             field
@@ -1237,7 +1193,7 @@ def query_indexer(
 
     if page_size <= 0:
         raise ValueError(
-            "REGIS_WAZUH_VULN_PAGE_SIZE must be greater than zero"
+            "WAZUH_VULN_PAGE_SIZE must be greater than zero"
         )
 
     user, password = load_credentials()
@@ -1646,60 +1602,21 @@ def normalize_hit(
             f"{title[:160]}"
         )
 
-    payload = {
-        "tenant_code":
-            tenant_code,
-
-        "tenant_service_tier":
-            service_tier,
-
-        "target_host":
-            target_host,
-
-        # Canonical scanner identity.
-        "engine_source":
-            "wazuh_vulnerability",
-
-        "finding_category":
-            "vulnerability",
-
-        "finding_class":
-            finding_class,
-
-        "finding_key":
-            finding_key,
-
-        "finding_title":
-            finding_title,
-
-        "lifecycle_status":
-            "OPEN",
-
-        "detected_at":
-            utc_now(),
-
-        "remediated_at":
-            None,
-
-        "last_verified_at":
-            None,
-
-        "compliance_result":
-            None,
-
-        "severity_level":
-            severity_level,
-
-        "severity_score":
-            severity_score,
-
-        "engine_metadata":
-            metadata,
-
-        # Ollama enrichment occurs AFTER scanner ingestion.
-        "ai_analysis":
-            None,
-    }
+    payload = build_unified_finding(
+        tenant_code=tenant_code,
+        tenant_service_tier=service_tier,
+        target_host=target_host,
+        engine_source="wazuh_vulnerability",
+        finding_category="vulnerability",
+        finding_class=finding_class,
+        finding_key=finding_key,
+        finding_title=finding_title,
+        detected_at=utc_now(),
+        compliance_result=None,
+        severity_level=severity_level,
+        severity_score=severity_score,
+        engine_metadata=metadata,
+    )
 
     validate_unified_finding(
         payload
@@ -1818,7 +1735,8 @@ def run_scan_mode(
         )
 
     service_tier = normalize_service_tier(
-        service_tier
+        service_tier,
+        logger,
     )
 
     agent_id = str(
@@ -2080,7 +1998,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Security Wazuh Vulnerability "
+            "Wazuh Vulnerability "
             "Detection scanner orchestrator"
         )
     )

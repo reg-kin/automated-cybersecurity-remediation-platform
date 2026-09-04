@@ -1,5 +1,5 @@
 ---
-- name: Regis remediation - web_application
+- name: Automated remediation - web_application
   hosts: all
   become: true
   gather_facts: true

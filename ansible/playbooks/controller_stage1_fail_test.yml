@@ -1,5 +1,5 @@
 ---
-- name: Regis Stage 1 failure test
+- name: Stage 1 failure test
   hosts: all
   gather_facts: false
   become: false

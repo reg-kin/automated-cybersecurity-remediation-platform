@@ -1,15 +1,15 @@
-#!/usr/bin/env python3                                                                                                                                      
-"""                                                                                                                                                         
-Regis Security Consulting                                                                                                                                   
-Wazuh Security Configuration Assessment Orchestrator                                                                                                        
-                                                                                                                                                            
-Responsibilities                                                                                                                                            
-================                                                                                                                                            
-                                                                                                                                                            
-SCAN MODE                                                                                                                                                   
----------                                                                                                                                                   
-- Authenticates to the existing Wazuh server API.                                                                                                           
-- Requests the SCA data already maintained by Wazuh.                                                                                                        
+#!/usr/bin/env python3
+"""
+Automated Cybersecurity Remediation Platform
+Wazuh Security Configuration Assessment Orchestrator
+
+Responsibilities
+================
+
+SCAN MODE
+---------
+- Authenticates to the existing Wazuh server API.
+- Requests the SCA data already maintained by Wazuh.
 - Retrieves policies and their checks for the requested Wazuh agent.
 - Processes FAILED checks only.
 - Deterministically assigns one of the approved Wazuh SCA finding classes.
@@ -124,34 +124,37 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import urllib3
 
+from common.finding import build_unified_finding
+from common.runtime import normalize_service_tier, utc_now
+from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
 WAZUH_URL = os.getenv(
-    "REGIS_WAZUH_API_URL",
+    "WAZUH_API_URL",
     "https://161.97.115.174:55000",
 )
 
 CREDENTIALS_FILE = os.getenv(
-    "REGIS_WAZUH_CREDENTIALS_FILE",
-    "/opt/regis-security/scanner_orchestrators/api_keys.json",
+    "WAZUH_CREDENTIALS_FILE",
+    "/opt/automated-remediation/scanner_orchestrators/api_keys.json",
 )
 
 DATA_LOG_PATH = os.getenv(
-    "REGIS_SCA_RAW_LOG",
+    "SCA_RAW_LOG",
     "/var/log/compliance_raw.log",
 )
 
 LOG_PATH = os.getenv(
-    "REGIS_SCA_LOG",
+    "SCA_LOG",
     "/var/log/sca_orchestrator.log",
 )
 
 REQUEST_TIMEOUT = int(
     os.getenv(
-        "REGIS_WAZUH_API_TIMEOUT",
+        "WAZUH_API_TIMEOUT",
         "15",
     )
 )
@@ -160,12 +163,6 @@ REQUEST_TIMEOUT = int(
 # ============================================================================
 # CANONICAL VALUES
 # ============================================================================
-
-VALID_SERVICE_TIERS = {
-    "GOLD",
-    "STANDARD",
-    "BRONZE",
-}
 
 WAZUH_SCA_FINDING_CLASSES = {
     "cis_control",
@@ -253,32 +250,6 @@ urllib3.disable_warnings(
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
-
-def utc_now() -> str:
-
-    return datetime.datetime.now(
-        datetime.timezone.utc
-    ).isoformat()
-
-
-def normalize_service_tier(
-    raw_tier: str,
-) -> str:
-
-    tier = str(
-        raw_tier or "STANDARD"
-    ).strip().upper()
-
-    if tier not in VALID_SERVICE_TIERS:
-
-        logger.warning(
-            "Unknown service tier %r; using STANDARD.",
-            raw_tier,
-        )
-
-        return "STANDARD"
-
-    return tier
 
 
 def normalize_status(
@@ -811,19 +782,7 @@ def validate_payload(
     payload: Dict[str, Any],
 ) -> None:
 
-    required = (
-        "tenant_code",
-        "tenant_service_tier",
-        "target_host",
-        "engine_source",
-        "finding_category",
-        "finding_class",
-        "finding_key",
-        "finding_title",
-        "lifecycle_status",
-    )
-
-    for field in required:
+    for field in REQUIRED_UNIFIED_FINDING_FIELDS:
 
         if payload.get(
             field
@@ -1560,60 +1519,21 @@ def build_finding(
         )
     }
 
-    payload = {
-        "tenant_code":
-            tenant,
-
-        "tenant_service_tier":
-            tier,
-
-        "target_host":
-            agent_identity[
-                "target_host"
-            ],
-
-        "engine_source":
-            "wazuh_sca",
-
-        "finding_category":
-            "compliance_drift",
-
-        "finding_class":
-            finding_class,
-
-        "finding_key":
-            finding_key,
-
-        "finding_title":
-            title,
-
-        "lifecycle_status":
-            "OPEN",
-
-        "detected_at":
-            utc_now(),
-
-        "remediated_at":
-            None,
-
-        "last_verified_at":
-            None,
-
-        "compliance_result":
-            compliance_result,
-
-        "severity_level":
-            None,
-
-        "severity_score":
-            None,
-
-        "engine_metadata":
-            metadata,
-
-        "ai_analysis":
-            None,
-    }
+    payload = build_unified_finding(
+        tenant_code=tenant,
+        tenant_service_tier=tier,
+        target_host=agent_identity["target_host"],
+        engine_source="wazuh_sca",
+        finding_category="compliance_drift",
+        finding_class=finding_class,
+        finding_key=finding_key,
+        finding_title=title,
+        detected_at=utc_now(),
+        compliance_result=compliance_result,
+        severity_level=None,
+        severity_score=None,
+        engine_metadata=metadata,
+    )
 
     validate_payload(
         payload
@@ -1681,7 +1601,8 @@ def process_agent(
 ) -> int:
 
     tier = normalize_service_tier(
-        tier
+        tier,
+        logger,
     )
 
     refresh_id = str(uuid.uuid4())
@@ -1911,7 +1832,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regis Wazuh SCA orchestrator"
+            "Wazuh SCA orchestrator"
         )
     )
 

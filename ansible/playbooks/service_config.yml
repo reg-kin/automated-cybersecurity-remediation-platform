@@ -1,5 +1,5 @@
 ---
-- name: Regis remediation - service_config
+- name: Automated remediation - service_config
   hosts: all
   become: true
   gather_facts: true

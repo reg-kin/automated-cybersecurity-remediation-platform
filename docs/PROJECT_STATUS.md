@@ -2,7 +2,7 @@
 
 ## Maturity
 
-Regis Security Remediation Platform is currently a pre-production,
+Automated Cybersecurity Remediation Platform is currently a pre-production,
 release-candidate-stage project.
 
 The core remediation architecture has been implemented and key execution paths
