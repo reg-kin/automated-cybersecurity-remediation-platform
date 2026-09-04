@@ -12,7 +12,15 @@
     "finding_class",
     "finding_key",
     "finding_title",
-    "lifecycle_status"
+    "lifecycle_status",
+    "detected_at",
+    "remediated_at",
+    "last_verified_at",
+    "compliance_result",
+    "severity_level",
+    "severity_score",
+    "engine_metadata",
+    "ai_analysis"
   ],
   "properties": {
     "tenant_code": {

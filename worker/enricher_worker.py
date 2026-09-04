@@ -3,6 +3,9 @@
 import json, logging, os, sys, urllib.request
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+from jsonschema import Draft7Validator, FormatChecker
 from psycopg2.pool import SimpleConnectionPool
 from psycopg2.extras import Json
 
@@ -19,6 +22,22 @@ logger=logging.getLogger('regis.enricher'); pool=None
 REFRESH_EVENT_TYPE='scanner_refresh_complete'
 REFRESH_STATUSES={'SUCCESS','FAILED'}
 WAZUH_ASYNC_ENGINES={'wazuh_vulnerability','wazuh_sca'}
+
+UNIFIED_FINDING_SCHEMA_PATH = (
+    Path(__file__).resolve().parent.parent
+    / 'schema'
+    / 'unified_security_finding.schema.json'
+)
+
+with UNIFIED_FINDING_SCHEMA_PATH.open(encoding='utf-8') as schema_file:
+    UNIFIED_FINDING_SCHEMA = json.load(schema_file)
+
+Draft7Validator.check_schema(UNIFIED_FINDING_SCHEMA)
+
+UNIFIED_FINDING_VALIDATOR = Draft7Validator(
+    UNIFIED_FINDING_SCHEMA,
+    format_checker=FormatChecker(),
+)
 
 def config():
     c=DEFAULT.copy()
@@ -94,20 +113,55 @@ def parse_optional_timestamp(value):
 
     return dt.astimezone(timezone.utc)
 
+def validate_unified_finding_schema(payload):
+    """
+    Validate the scanner-ingress Unified Security Finding contract.
+
+    Scanner refresh control events use a separate contract and are handled
+    before this validator is called.
+    """
+    errors = sorted(
+        UNIFIED_FINDING_VALIDATOR.iter_errors(payload),
+        key=lambda error: list(error.absolute_path),
+    )
+
+    if not errors:
+        return
+
+    error = errors[0]
+
+    location = "$"
+
+    if error.absolute_path:
+        location += "".join(
+            f"[{part!r}]"
+            if isinstance(part, int)
+            else f".{part}"
+            for part in error.absolute_path
+        )
+
+    raise ValueError(
+        "Unified Security Finding schema validation failed "
+        f"at {location}: {error.message}"
+    )
+
 
 def parse_detected_timestamp(value):
     """
-    detected_at is required logically for an independent scanner observation.
+    Parse the scanner observation timestamp.
 
-    If it is missing/nullish, use the current UTC time.
+    detected_at is mandatory because it represents the time of the scanner
+    observation and participates in recurrence and lifecycle decisions.
+    Ingestion must never manufacture this evidence.
     """
     parsed = parse_optional_timestamp(value)
 
     if parsed is None:
-        return datetime.now(timezone.utc)
+        raise ValueError(
+            "detected_at is required for a Unified Security Finding"
+        )
 
     return parsed
-
 
 def is_refresh_control_event(payload):
     return isinstance(payload,dict) and str(payload.get('event_type') or '').strip().lower()==REFRESH_EVENT_TYPE
@@ -518,7 +572,11 @@ def process_ai_enrichment(payload):
     global pool
     c=config(); setup(c)
     if is_refresh_control_event(payload): return process_refresh_control_event(c,payload)
-    f=normalise(payload); grace=int(c.get('recurrence_grace_seconds',300))
+
+    validate_unified_finding_schema(payload)
+
+    f=normalise(payload)
+    grace=int(c.get('recurrence_grace_seconds',300))
     if pool is None: pool=SimpleConnectionPool(int(c['pg_minconn']),int(c['pg_maxconn']),host=c['pg_host'],port=c['pg_port'],dbname=c['pg_dbname'],user=c['pg_user'],password=c['pg_password'],connect_timeout=5)
     conn=pool.getconn()
     try:
