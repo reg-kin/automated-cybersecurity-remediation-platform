@@ -6,7 +6,7 @@ volumes:
 
 services:
   n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
+    image: docker.n8n.io/n8nio/n8n:2.31.7
     container_name: n8n
     restart: always
     ports:
