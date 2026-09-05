@@ -141,6 +141,7 @@ REGRESSION_TESTS=(
     "tests/test_remediation_controller_runtime.py"
     "tests/test_deferred_verification_runtime.py"
     "tests/test_ansible_runner_allowlist.py"
+    "tests/test_ansible_runner_target_validation.py"
     "tests/test_verification_gateway_security.py"
     "tests/test_verification_command_safety.py"
     "tests/test_verification_stdin_transport.py"
