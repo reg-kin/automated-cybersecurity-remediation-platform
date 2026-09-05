@@ -241,6 +241,14 @@ grep -Fxq 'CONTROLLER_HOST=127.0.0.1' "${CONTROLLER_ENV}" \
 grep -Fxq 'CONTROLLER_PORT=9000' "${CONTROLLER_ENV}" \
     || fail "Controller environment example has the wrong controller port."
 
+# n8n must use the tested release version rather than a floating tag.
+grep -Fq "image: docker.n8n.io/n8nio/n8n:2.31.7" "${COMPOSE}" \
+    || fail "Compose deployment must pin n8n to tested version 2.31.7."
+
+if grep -Eq 'image:[[:space:]]+docker\.n8n\.io/n8nio/n8n:latest([[:space:]]|$)' "${COMPOSE}"; then
+    fail "Compose deployment must not use the floating n8n:latest tag."
+fi
+
 # The reference Compose deployment exposes host port 8081 while the
 # Ansible Runner container listens on port 8080.
 grep -Fq '"127.0.0.1:8081:8080"' "${COMPOSE}" \
