@@ -272,6 +272,16 @@ if grep -Eq 'image:[[:space:]]+docker\.n8n\.io/n8nio/n8n:latest([[:space:]]|$)' 
     fail "Compose deployment must not use the floating n8n:latest tag."
 fi
 
+# The Ansible Runner container must not receive unnecessary host-level
+# network administration privileges.
+if grep -Eq '^[[:space:]]*-[[:space:]]*NET_ADMIN([[:space:]]|$)' "${COMPOSE}"; then
+    fail "Ansible Runner Compose deployment must not grant NET_ADMIN."
+fi
+
+if grep -Eq '^[[:space:]]*privileged:[[:space:]]*true([[:space:]]|$)' "${COMPOSE}"; then
+    fail "Compose deployment must not enable privileged container execution."
+fi
+
 # The reference Compose deployment exposes host port 8081 while the
 # Ansible Runner container listens on port 8080.
 grep -Fq '"127.0.0.1:8081:8080"' "${COMPOSE}" \

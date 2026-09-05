@@ -31,8 +31,6 @@ services:
     ports:
       - "127.0.0.1:8081:8080"
     user: "root" # Run container processes as root
-    cap_add:
-      - NET_ADMIN  # Grants permission to modify iptables/firewall rules
     environment:
       - ANSIBLE_PLAYBOOK_DIR=/etc/ansible/playbooks
       - ANSIBLE_ROLES_PATH=/etc/ansible/roles
