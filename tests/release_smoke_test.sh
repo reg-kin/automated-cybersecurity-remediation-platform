@@ -177,6 +177,8 @@ echo "[6/10] Checking deployment contracts..."
 CONTROLLER_API="remediation/controller_api.py"
 DISPATCHER="verification/verification_dispatcher.py"
 COMPOSE="deployment/docker/n8n-ansible/docker-compose.yml"
+ANSIBLE_RUNNER_REQUIREMENTS="ansible-runner/requirements.txt"
+ANSIBLE_RUNNER_DOCKERFILE="ansible-runner/Dockerfile"
 ENRICHER_SERVICE="deployment/systemd/ollama-wazuh-enricher.service"
 ENRICHER_OVERRIDE="deployment/systemd/ollama-wazuh-enricher.service.d/override.conf"
 CONTROLLER_ENV="deployment/systemd/env/remediation-controller.env.example"
@@ -187,6 +189,8 @@ for file in \
     "${CONTROLLER_API}" \
     "${DISPATCHER}" \
     "${COMPOSE}" \
+    "${ANSIBLE_RUNNER_REQUIREMENTS}" \
+    "${ANSIBLE_RUNNER_DOCKERFILE}" \
     "${ENRICHER_SERVICE}" \
     "${CONTROLLER_ENV}" \
     "${SCANNER_ENV}" \
@@ -240,6 +244,25 @@ grep -Fxq 'CONTROLLER_HOST=127.0.0.1' "${CONTROLLER_ENV}" \
 
 grep -Fxq 'CONTROLLER_PORT=9000' "${CONTROLLER_ENV}" \
     || fail "Controller environment example has the wrong controller port."
+
+# Ansible Runner Python dependencies must remain pinned to the tested versions.
+grep -Fxq 'ansible==12.3.0' "${ANSIBLE_RUNNER_REQUIREMENTS}" \
+    || fail "Ansible Runner must pin ansible to tested version 12.3.0."
+
+grep -Fxq 'psycopg2-binary==2.9.12' "${ANSIBLE_RUNNER_REQUIREMENTS}" \
+    || fail "Ansible Runner must pin psycopg2-binary to tested version 2.9.12."
+
+if grep -Eq '^ansible[[:space:]]*(>=|>|~=|==)?[[:space:]]*9\.0\.0$|^ansible>=9\.0\.0$' "${ANSIBLE_RUNNER_REQUIREMENTS}"; then
+    fail "Ansible Runner must not use the previous floating ansible requirement."
+fi
+
+if grep -Eq '^psycopg2-binary[[:space:]]*$' "${ANSIBLE_RUNNER_REQUIREMENTS}"; then
+    fail "Ansible Runner must not use an unpinned psycopg2-binary requirement."
+fi
+
+if grep -Eq '^[[:space:]]*ansible[[:space:]]*\\$' "${ANSIBLE_RUNNER_DOCKERFILE}"; then
+    fail "Ansible Runner Dockerfile must not install the redundant Debian ansible package."
+fi
 
 # n8n must use the tested release version rather than a floating tag.
 grep -Fq "image: docker.n8n.io/n8nio/n8n:2.31.7" "${COMPOSE}" \
