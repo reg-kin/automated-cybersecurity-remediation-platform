@@ -182,24 +182,36 @@ def validate_target_host(target_host):
             "target_host cannot be empty"
         )
 
-    if target_host in {
-        "localhost",
-        "127.0.0.1",
-        "::1",
-    }:
-        return target_host
+    # The Runner is an orchestration service for managed hosts. It must
+    # never execute remediation against its own loopback interface.
+    hostname_lower = target_host.lower()
+
+    if (
+        hostname_lower == "localhost"
+        or hostname_lower.endswith(".localhost")
+    ):
+        raise ValueError(
+            "Loopback target_host is not permitted"
+        )
 
     # First try IP validation.
     try:
 
-        ipaddress.ip_address(
+        target_ip = ipaddress.ip_address(
             target_host
         )
 
-        return target_host
-
     except ValueError:
-        pass
+        target_ip = None
+
+    if target_ip is not None:
+
+        if target_ip.is_loopback:
+            raise ValueError(
+                "Loopback target_host is not permitted"
+            )
+
+        return target_host
 
     # Otherwise allow a conservative DNS hostname.
     hostname_pattern = re.compile(
@@ -389,18 +401,6 @@ def run_playbook():
         "-i",
         inventory,
     ]
-
-    # Local connection only for actual loopback targets.
-    if target_host in {
-        "127.0.0.1",
-        "localhost",
-        "::1",
-    }:
-
-        cmd.extend([
-            "-c",
-            "local",
-        ])
 
     cmd.extend([
         "--extra-vars",
