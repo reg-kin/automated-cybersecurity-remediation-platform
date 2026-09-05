@@ -151,6 +151,7 @@ REGRESSION_TESTS=(
     "tests/test_nmap_normalization.py"
     "tests/test_lynis_normalization.py"
     "tests/test_wazuh_sca_normalization.py"
+    "tests/test_wazuh_sca_api_configuration.py"
     "tests/test_wazuh_vulnerability_normalization.py"
     "tests/test_openvas_normalization.py"
 )

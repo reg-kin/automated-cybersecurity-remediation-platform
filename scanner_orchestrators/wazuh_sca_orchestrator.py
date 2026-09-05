@@ -135,8 +135,8 @@ from common.verification import read_verification_request
 
 WAZUH_URL = os.getenv(
     "WAZUH_API_URL",
-    "https://161.97.115.174:55000",
-)
+    "",
+).strip()
 
 CREDENTIALS_FILE = os.getenv(
     "WAZUH_CREDENTIALS_FILE",
@@ -160,6 +160,32 @@ REQUEST_TIMEOUT = int(
     )
 )
 
+def require_wazuh_api_url() -> str:
+    """
+    Return the explicitly configured Wazuh API URL.
+
+    Wazuh SCA execution must not silently fall back to an
+    environment-specific API endpoint.
+    """
+
+    if not WAZUH_URL:
+
+        raise RuntimeError(
+            "WAZUH_API_URL must be configured with a non-empty value."
+        )
+
+    if not WAZUH_URL.startswith(
+        (
+            "http://",
+            "https://",
+        )
+    ):
+
+        raise RuntimeError(
+            "WAZUH_API_URL must start with http:// or https://."
+        )
+
+    return WAZUH_URL
 
 # ============================================================================
 # CANONICAL VALUES
@@ -2019,6 +2045,8 @@ def main() -> int:
                 args.engine_metadata_json
             )
 
+            require_wazuh_api_url()
+
             result = run_verify_mode(
                 target_host=args.target_host,
                 finding_key=args.finding_key,
@@ -2104,6 +2132,19 @@ def main() -> int:
         raise SystemExit(
             "SCAN mode requires --agent-id."
         )
+
+    try:
+
+        require_wazuh_api_url()
+
+    except RuntimeError as exc:
+
+        logger.error(
+            "Wazuh SCA configuration error: %s",
+            exc,
+        )
+
+        return 1
 
     session = get_session()
 
