@@ -153,6 +153,7 @@ REGRESSION_TESTS=(
     "tests/test_wazuh_sca_normalization.py"
     "tests/test_wazuh_sca_api_configuration.py"
     "tests/test_wazuh_vulnerability_normalization.py"
+    "tests/test_wazuh_indexer_tls_configuration.py"
     "tests/test_openvas_normalization.py"
 )
 
@@ -213,6 +214,18 @@ done
 grep -Fxq 'WAZUH_INDEXER_USER=CHANGE_ME' "${WAZUH_INDEXER_ENV}"     || fail "Wazuh Indexer environment example is missing WAZUH_INDEXER_USER."
 
 grep -Fxq 'WAZUH_INDEXER_PASSWORD=CHANGE_ME' "${WAZUH_INDEXER_ENV}"     || fail "Wazuh Indexer environment example is missing WAZUH_INDEXER_PASSWORD."
+
+grep -Fxq 'WAZUH_API_URL=https://wazuh-manager.example.test:55000' "${SCANNER_ENV}" \
+    || fail "Scanner verification environment example is missing HTTPS WAZUH_API_URL."
+
+grep -Fxq '# WAZUH_API_CA_BUNDLE=/etc/ssl/certs/wazuh-api-ca.pem' "${SCANNER_ENV}" \
+    || fail "Scanner verification environment example is missing WAZUH_API_CA_BUNDLE documentation."
+
+grep -Fxq 'WAZUH_INDEXER_URL=https://127.0.0.1:9200' "${WAZUH_INDEXER_ENV}" \
+    || fail "Wazuh Indexer environment example is missing HTTPS WAZUH_INDEXER_URL."
+
+grep -Fxq '# WAZUH_INDEXER_CA_BUNDLE=/etc/ssl/certs/wazuh-indexer-ca.pem' "${WAZUH_INDEXER_ENV}" \
+    || fail "Wazuh Indexer environment example is missing WAZUH_INDEXER_CA_BUNDLE documentation."
 
 # Controller bind configuration must remain externally configurable while
 # retaining the documented loopback deployment default.

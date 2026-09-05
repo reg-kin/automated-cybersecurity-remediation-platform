@@ -112,7 +112,6 @@ from common.runtime import normalize_service_tier, utc_now
 from common.validation import REQUIRED_UNIFIED_FINDING_FIELDS
 
 import requests
-import urllib3
 
 
 # ============================================================================
@@ -123,6 +122,11 @@ INDEXER_URL = os.getenv(
     "WAZUH_INDEXER_URL",
     "https://127.0.0.1:9200",
 )
+
+WAZUH_INDEXER_CA_BUNDLE = os.getenv(
+    "WAZUH_INDEXER_CA_BUNDLE",
+    "",
+).strip()
 
 INDEX_PATTERN = os.getenv(
     "WAZUH_VULN_INDEX",
@@ -279,27 +283,51 @@ def setup_logging() -> logging.Logger:
 logger = setup_logging()
 
 
-# Wazuh Indexer is currently queried locally with TLS verification disabled.
-urllib3.disable_warnings(
-    urllib3.exceptions.InsecureRequestWarning
-)
-
-
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
 
+def require_wazuh_indexer_url() -> str:
+    """
+    Return the configured HTTPS Wazuh Indexer URL.
+    """
+
+    url = INDEXER_URL.strip()
+
+    if not url:
+
+        raise RuntimeError(
+            "WAZUH_INDEXER_URL must be configured with a non-empty value."
+        )
+
+    if not url.startswith(
+        "https://"
+    ):
+
+        raise RuntimeError(
+            "WAZUH_INDEXER_URL must start with https://."
+        )
+
+    return url
+
 def get_session() -> requests.Session:
     """
     Create the HTTP session used for Wazuh Indexer queries.
+
+    TLS certificate verification is mandatory. When
+    WAZUH_INDEXER_CA_BUNDLE is configured, Requests uses that
+    CA bundle; otherwise the system trust store is used.
     """
 
     session = requests.Session()
 
-    session.verify = False
+    session.verify = (
+        WAZUH_INDEXER_CA_BUNDLE
+        if WAZUH_INDEXER_CA_BUNDLE
+        else True
+    )
 
     return session
-
 
 # ============================================================================
 # EXISTING WORKING CREDENTIAL HANDLING
@@ -1196,6 +1224,8 @@ def query_indexer(
             "WAZUH_VULN_PAGE_SIZE must be greater than zero"
         )
 
+    indexer_url = require_wazuh_indexer_url()
+
     user, password = load_credentials()
 
     if not user or not password:
@@ -1206,7 +1236,7 @@ def query_indexer(
     session = get_session()
 
     search_url = (
-        f"{INDEXER_URL}/"
+        f"{indexer_url}/"
         f"{INDEX_PATTERN}/_search"
     )
 
@@ -1296,7 +1326,7 @@ def query_indexer(
                 break
 
             scroll_response = session.post(
-                f"{INDEXER_URL}/_search/scroll",
+                f"{indexer_url}/_search/scroll",
                 auth=(
                     user,
                     password,
@@ -1344,7 +1374,7 @@ def query_indexer(
         if scroll_id:
             try:
                 session.delete(
-                    f"{INDEXER_URL}/_search/scroll",
+                    f"{indexer_url}/_search/scroll",
                     auth=(
                         user,
                         password,

@@ -11,17 +11,17 @@ from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ORCHESTRATOR_DIR = REPO_ROOT / "scanner_orchestrators"
-ORCHESTRATOR_PATH = ORCHESTRATOR_DIR / "wazuh_sca_orchestrator.py"
+ORCHESTRATOR_PATH = ORCHESTRATOR_DIR / "wazuh_vuln_orchestrator.py"
 
 
 def load_orchestrator(
-    wazuh_api_url=None,
-    wazuh_api_ca_bundle=None,
+    indexer_url=None,
+    ca_bundle=None,
 ):
     sys.path.insert(0, str(ORCHESTRATOR_DIR))
 
     spec = importlib.util.spec_from_file_location(
-        "wazuh_sca_orchestrator_config_test",
+        "wazuh_vuln_orchestrator_tls_test",
         ORCHESTRATOR_PATH,
     )
 
@@ -33,14 +33,14 @@ def load_orchestrator(
     module = importlib.util.module_from_spec(spec)
 
     environment = {
-        "LOG_DIR": "/tmp/wazuh-sca-api-config-test",
+        "LOG_DIR": "/tmp/wazuh-indexer-tls-test",
     }
 
-    if wazuh_api_url is not None:
-        environment["WAZUH_API_URL"] = wazuh_api_url
+    if indexer_url is not None:
+        environment["WAZUH_INDEXER_URL"] = indexer_url
 
-    if wazuh_api_ca_bundle is not None:
-        environment["WAZUH_API_CA_BUNDLE"] = wazuh_api_ca_bundle
+    if ca_bundle is not None:
+        environment["WAZUH_INDEXER_CA_BUNDLE"] = ca_bundle
 
     with (
         patch.dict(
@@ -64,59 +64,59 @@ def assert_configuration_rejected(
     expected_message,
 ):
     orchestrator = load_orchestrator(
-        wazuh_api_url=value
+        indexer_url=value
     )
 
     try:
-        orchestrator.require_wazuh_api_url()
+        orchestrator.require_wazuh_indexer_url()
     except RuntimeError as exc:
         assert str(exc) == expected_message
     else:
         raise AssertionError(
-            f"WAZUH_API_URL value {value!r} was unexpectedly accepted."
+            f"WAZUH_INDEXER_URL value {value!r} was unexpectedly accepted."
         )
 
 
 def main():
-    # Importing the orchestrator must remain safe even when the API URL
-    # is not configured. Validation occurs only when API access is needed.
     orchestrator = load_orchestrator()
 
-    assert orchestrator.WAZUH_URL == ""
-
-    try:
-        orchestrator.require_wazuh_api_url()
-    except RuntimeError as exc:
-        assert str(exc) == (
-            "WAZUH_API_URL must be configured with a non-empty value."
-        )
-    else:
-        raise AssertionError(
-            "Missing WAZUH_API_URL was unexpectedly accepted."
-        )
-
-    assert_configuration_rejected(
-        "   ",
-        "WAZUH_API_URL must be configured with a non-empty value.",
-    )
-
-    assert_configuration_rejected(
-        "wazuh.example.test:55000",
-        "WAZUH_API_URL must start with https://.",
-    )
-
-    assert_configuration_rejected(
-        "http://wazuh.example.test:55000",
-        "WAZUH_API_URL must start with https://.",
-    )
-
-    orchestrator = load_orchestrator(
-        wazuh_api_url="https://wazuh.example.test:55000"
+    assert (
+        orchestrator.INDEXER_URL
+        == "https://127.0.0.1:9200"
     )
 
     assert (
-        orchestrator.require_wazuh_api_url()
-        == "https://wazuh.example.test:55000"
+        orchestrator.require_wazuh_indexer_url()
+        == "https://127.0.0.1:9200"
+    )
+
+    assert_configuration_rejected(
+        "",
+        "WAZUH_INDEXER_URL must be configured with a non-empty value.",
+    )
+
+    assert_configuration_rejected(
+        "   ",
+        "WAZUH_INDEXER_URL must be configured with a non-empty value.",
+    )
+
+    assert_configuration_rejected(
+        "http://127.0.0.1:9200",
+        "WAZUH_INDEXER_URL must start with https://.",
+    )
+
+    assert_configuration_rejected(
+        "wazuh-indexer.example.test:9200",
+        "WAZUH_INDEXER_URL must start with https://.",
+    )
+
+    orchestrator = load_orchestrator(
+        indexer_url="https://wazuh-indexer.example.test:9200",
+    )
+
+    assert (
+        orchestrator.require_wazuh_indexer_url()
+        == "https://wazuh-indexer.example.test:9200"
     )
 
     session = orchestrator.get_session()
@@ -124,37 +124,27 @@ def main():
     assert session.verify is True
 
     orchestrator = load_orchestrator(
-        wazuh_api_url="https://wazuh.example.test:55000",
-        wazuh_api_ca_bundle="/etc/ssl/certs/wazuh-api-ca.pem",
+        indexer_url="https://wazuh-indexer.example.test:9200",
+        ca_bundle="/etc/ssl/certs/wazuh-indexer-ca.pem",
     )
 
     session = orchestrator.get_session()
 
     assert (
         session.verify
-        == "/etc/ssl/certs/wazuh-api-ca.pem"
-    )
-
-    orchestrator = load_orchestrator(
-        wazuh_api_url="  https://wazuh.example.test:55000/  "
-    )
-
-    assert (
-        orchestrator.require_wazuh_api_url()
-        == "https://wazuh.example.test:55000/"
+        == "/etc/ssl/certs/wazuh-indexer-ca.pem"
     )
 
     source = ORCHESTRATOR_PATH.read_text(
         encoding="utf-8"
     )
 
-    assert "161.97.115.174" not in source
     assert "disable_warnings" not in source
     assert "InsecureRequestWarning" not in source
     assert "session.verify = False" not in source
 
     print(
-        "PASS: Wazuh SCA API requires HTTPS and mandatory TLS verification"
+        "PASS: Wazuh Indexer requires HTTPS and mandatory TLS verification"
     )
 
 

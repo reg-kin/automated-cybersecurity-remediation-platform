@@ -122,7 +122,6 @@ from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
-import urllib3
 
 from common.finding import build_unified_finding
 from common.runtime import normalize_service_tier, utc_now
@@ -135,6 +134,11 @@ from common.verification import read_verification_request
 
 WAZUH_URL = os.getenv(
     "WAZUH_API_URL",
+    "",
+).strip()
+
+WAZUH_API_CA_BUNDLE = os.getenv(
+    "WAZUH_API_CA_BUNDLE",
     "",
 ).strip()
 
@@ -175,14 +179,11 @@ def require_wazuh_api_url() -> str:
         )
 
     if not WAZUH_URL.startswith(
-        (
-            "http://",
-            "https://",
-        )
+        "https://"
     ):
 
         raise RuntimeError(
-            "WAZUH_API_URL must start with http:// or https://."
+            "WAZUH_API_URL must start with https://."
         )
 
     return WAZUH_URL
@@ -269,11 +270,6 @@ def setup_logging() -> logging.Logger:
 logger = setup_logging()
 
 
-urllib3.disable_warnings(
-    urllib3.exceptions.InsecureRequestWarning
-)
-
-
 # ============================================================================
 # GENERAL HELPERS
 # ============================================================================
@@ -308,18 +304,24 @@ def normalize_status(
         raw_status.strip().lower()
     )
 
-
 def get_session() -> requests.Session:
     """
-    Preserve the existing working Wazuh API behaviour.
+    Create the authenticated Wazuh API HTTP session.
+
+    TLS certificate verification is mandatory. When
+    WAZUH_API_CA_BUNDLE is configured, Requests uses that CA
+    bundle; otherwise the system trust store is used.
     """
 
     session = requests.Session()
 
-    session.verify = False
+    session.verify = (
+        WAZUH_API_CA_BUNDLE
+        if WAZUH_API_CA_BUNDLE
+        else True
+    )
 
     return session
-
 
 def parse_engine_metadata(
     raw_json: Optional[str],
