@@ -268,6 +268,17 @@ if grep -Eq '^[[:space:]]*ansible[[:space:]]*\\$' "${ANSIBLE_RUNNER_DOCKERFILE}"
     fail "Ansible Runner Dockerfile must not install the redundant Debian ansible package."
 fi
 
+EXPECTED_ANSIBLE_RUNNER_BASE_IMAGE="python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534"
+
+grep -Fqx \
+    "FROM ${EXPECTED_ANSIBLE_RUNNER_BASE_IMAGE}" \
+    "${ANSIBLE_RUNNER_DOCKERFILE}" \
+    || fail "Ansible Runner base image must be pinned to the tested digest."
+
+if grep -Eq '^FROM[[:space:]]+python:3\.11-slim([[:space:]]|$)' "${ANSIBLE_RUNNER_DOCKERFILE}"; then
+    fail "Ansible Runner Dockerfile must not use the floating python:3.11-slim tag."
+fi
+
 # n8n must use the tested release version rather than a floating tag.
 grep -Fq "image: docker.n8n.io/n8nio/n8n:2.31.7" "${COMPOSE}" \
     || fail "Compose deployment must pin n8n to tested version 2.31.7."
