@@ -247,6 +247,10 @@ scanner_refresh_complete
 
 An example Wazuh integration configuration is provided under: integrations/wazuh/examples/
 
+The `custom-security-findings` integration connects to Redis using
+`REDIS_HOST` and `REDIS_PORT`. If these variables are not supplied to the
+Wazuh integration process, the defaults are `127.0.0.1` and `6379`.
+
 8. Wazuh Vulnerability Deployment
 
 The Wazuh vulnerability orchestrator is intended to run on a trusted system
