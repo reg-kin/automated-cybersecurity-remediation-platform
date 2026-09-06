@@ -4,7 +4,8 @@ After=network.target redis-server.service
 
 [Service]
 Type=simple
-User=root
+User=automated-remediation
+Group=automated-remediation
 WorkingDirectory=/opt/automated-remediation/worker
 ExecStart=/usr/bin/rq worker ai-enrichment --path /opt/automated-remediation
 Restart=always

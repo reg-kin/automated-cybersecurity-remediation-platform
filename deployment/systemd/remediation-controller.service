@@ -5,6 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=automated-remediation
+Group=automated-remediation
 
 WorkingDirectory=/opt/automated-remediation
 
