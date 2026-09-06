@@ -3,6 +3,7 @@
 import sys
 import json
 import logging
+import os
 
 from rq import Queue
 from redis import Redis
@@ -10,8 +11,8 @@ from redis import Redis
 
 LOG_FILE = "/var/ossec/logs/integrations.log"
 
-REDIS_HOST = "127.0.0.1"
-REDIS_PORT = 6379
+REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 FINDING_QUEUE = "ai-enrichment"
 CONTROL_QUEUE = "scanner-control"
