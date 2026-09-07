@@ -535,7 +535,7 @@ pass "Database reconstruction completed successfully."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[9/11] Checking deterministic Wazuh asset resolution..."
+echo "[9/11] Checking deterministic asset resolution..."
 
 PG_PASSWORD="$(
     docker inspect "${PG_CONTAINER}" \
@@ -553,7 +553,7 @@ PG_DBNAME="${TEST_DB}" \
 PG_USER="${PG_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_asset_resolver.py \
-    || fail "Deterministic Wazuh asset resolver regression failed."
+    || fail "Deterministic asset resolver regression failed."
 
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
@@ -565,7 +565,7 @@ python3 tests/test_enricher_asset_integration.py \
 
 unset PG_PASSWORD
 
-pass "Deterministic Wazuh asset resolution is correct."
+pass "Deterministic asset resolution is correct."
 
 # ---------------------------------------------------------------------------
 # 10. Database invariant checks
