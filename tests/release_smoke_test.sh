@@ -76,7 +76,7 @@ echo
 # 1. Repository structure
 # ---------------------------------------------------------------------------
 
-echo "[1/10] Checking required repository files..."
+echo "[1/11] Checking required repository files..."
 
 REQUIRED_FILES=(
     "README.md"
@@ -99,7 +99,7 @@ pass "Required repository files are present."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[2/10] Running catalogue consistency check..."
+echo "[2/11] Running catalogue consistency check..."
 
 python3 tests/check_catalogue.py
 
@@ -110,7 +110,7 @@ pass "Catalogue consistency check passed."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[3/10] Checking Git whitespace integrity..."
+echo "[3/11] Checking Git whitespace integrity..."
 
 git diff --check
 
@@ -121,7 +121,7 @@ pass "No Git whitespace errors detected."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[4/10] Checking tracked files for obvious literal credentials..."
+echo "[4/11] Checking tracked files for obvious literal credentials..."
 
 if git grep -nEI \
     '([Pp]assword|[Pp]asswd|[Tt]oken|[Ss]ecret|[Aa]pi[_-]?[Kk]ey)[[:space:]]*[:=][[:space:]]*["'\''][^"'\'']{4,}["'\'']'
@@ -136,7 +136,7 @@ pass "No obvious tracked literal credentials detected."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[5/10] Running release-critical regression tests..."
+echo "[5/11] Running release-critical regression tests..."
 
 REGRESSION_TESTS=(
     "tests/test_remediation_controller_runtime.py"
@@ -177,7 +177,7 @@ pass "Release-critical regression tests passed."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[6/10] Checking deployment contracts..."
+echo "[6/11] Checking deployment contracts..."
 
 CONTROLLER_API="remediation/controller_api.py"
 DISPATCHER="verification/verification_dispatcher.py"
@@ -474,7 +474,7 @@ pass "Deployment contracts are consistent."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[7/10] Checking PostgreSQL test environment..."
+echo "[7/11] Checking PostgreSQL test environment..."
 
 command -v docker >/dev/null 2>&1 \
     || fail "docker command is not available."
@@ -497,7 +497,7 @@ pass "PostgreSQL container is reachable."
 # ---------------------------------------------------------------------------
 
 echo
-echo "[8/10] Reconstructing temporary database..."
+echo "[8/11] Reconstructing temporary database..."
 
 docker exec -i "${PG_CONTAINER}" \
     psql \
@@ -530,11 +530,40 @@ done
 pass "Database reconstruction completed successfully."
 
 # ---------------------------------------------------------------------------
-# 9. Database invariant checks
+# 9. Deterministic Wazuh asset resolution
 # ---------------------------------------------------------------------------
 
 echo
-echo "[9/10] Checking reconstructed database invariants..."
+echo "[9/11] Checking deterministic Wazuh asset resolution..."
+
+PG_PASSWORD="$(
+    docker inspect "${PG_CONTAINER}" \
+        --format '{{range .Config.Env}}{{println .}}{{end}}' \
+    | sed -n 's/^POSTGRES_PASSWORD=//p'
+)"
+
+if [[ -z "${PG_PASSWORD}" ]]; then
+    fail "PostgreSQL container does not expose POSTGRES_PASSWORD."
+fi
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${PG_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_asset_resolver.py \
+    || fail "Deterministic Wazuh asset resolver regression failed."
+
+unset PG_PASSWORD
+
+pass "Deterministic Wazuh asset resolution is correct."
+
+# ---------------------------------------------------------------------------
+# 10. Database invariant checks
+# ---------------------------------------------------------------------------
+
+echo
+echo "[10/11] Checking reconstructed database invariants..."
 
 finding_class_count="$(
     docker exec -i "${PG_CONTAINER}" \
@@ -868,11 +897,11 @@ echo "  orphan_rules:    ${orphan_rule_count}"
 pass "Database invariants are correct."
 
 # ---------------------------------------------------------------------------
-# 10. Git release/tag information
+# 11. Git release/tag information
 # ---------------------------------------------------------------------------
 
 echo
-echo "[10/10] Checking Git release information..."
+echo "[11/11] Checking Git release information..."
 
 commit="$(git rev-parse --short HEAD)"
 echo "  commit: ${commit}"
