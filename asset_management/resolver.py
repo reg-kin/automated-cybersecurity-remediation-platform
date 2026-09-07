@@ -9,7 +9,7 @@ roll back the supplied PostgreSQL connection.
 """
 
 import ipaddress
-
+from urllib.parse import urlsplit
 from psycopg2 import errors
 
 SUPPORTED_ENGINES = {
@@ -18,6 +18,7 @@ SUPPORTED_ENGINES = {
     "nmap_nse",
     "openvas",
     "lynis",
+    "nuclei",
 }
 
 WEAK_HOST_ENGINES = {
@@ -27,6 +28,10 @@ WEAK_HOST_ENGINES = {
 }
 
 STRONG_IDENTIFIER_INDEX = "uq_asset_identifiers_strong_active"
+
+APPLICATION_IDENTIFIER_INDEX = (
+    "uq_asset_identifiers_application_active"
+)
 
 def _normalise_text(value):
     if value is None:
@@ -47,6 +52,92 @@ def _normalise_ip(value):
     except ValueError:
         return None
 
+
+def _normalise_application_origin(value):
+    value = _normalise_text(value)
+
+    if value is None:
+        return None
+
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+
+    scheme = parsed.scheme.lower()
+
+    if scheme not in {"http", "https"}:
+        return None
+
+    if not parsed.hostname:
+        return None
+
+    if parsed.username is not None or parsed.password is not None:
+        return None
+
+    if parsed.path not in {"", "/"}:
+        return None
+
+    if parsed.query or parsed.fragment:
+        return None
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+
+    host = parsed.hostname.lower()
+
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.version == 6:
+            host = f"[{ip.compressed}]"
+        else:
+            host = ip.compressed
+    except ValueError:
+        pass
+
+    default_port = (
+        scheme == "http" and port == 80
+    ) or (
+        scheme == "https" and port == 443
+    )
+
+    if port is not None and not default_port:
+        return f"{scheme}://{host}:{port}"
+
+    return f"{scheme}://{host}"
+
+
+def _extract_nuclei_application_evidence(
+    engine_metadata,
+):
+    metadata = engine_metadata or {}
+
+    origin = _normalise_application_origin(
+        metadata.get("verification_target")
+    )
+
+    if origin is None:
+        return {
+            "asset_type": "APPLICATION",
+            "canonical_name": None,
+            "identifiers": [],
+        }
+
+    return {
+        "asset_type": "APPLICATION",
+        "canonical_name": origin,
+        "identifiers": [
+            {
+                "identifier_type": "APPLICATION_ID",
+                "identifier_value": origin,
+                "normalized_value": origin,
+                "confidence": "HIGH",
+                "is_authoritative": False,
+            }
+        ],
+    }
 
 def _extract_wazuh_evidence(
     target_host,
@@ -146,8 +237,14 @@ def _extract_evidence(
     engine_source,
     engine_metadata,
 ):
+
     if engine_source not in SUPPORTED_ENGINES:
         return None
+
+    if engine_source == "nuclei":
+        return _extract_nuclei_application_evidence(
+            engine_metadata,
+        )
 
     if engine_source in WEAK_HOST_ENGINES:
         return _extract_weak_host_evidence(
@@ -197,6 +294,57 @@ def _find_strong_asset(
     if len(rows) > 1:
         raise RuntimeError(
             "Strong asset identifier resolved to "
+            "multiple active assets"
+        )
+
+    if rows:
+        return rows[0][0]
+
+    return None
+
+
+def _find_application_asset(
+    cur,
+    tenant_code,
+    identifiers,
+):
+    application_ids = [
+        identifier
+        for identifier in identifiers
+        if identifier["identifier_type"]
+        == "APPLICATION_ID"
+    ]
+
+    if not application_ids:
+        return None
+
+    identifier = application_ids[0]
+
+    cur.execute(
+        """
+        SELECT ai.asset_id
+        FROM asset_identifiers AS ai
+        JOIN assets AS a
+          ON a.asset_id = ai.asset_id
+         AND a.tenant_code = ai.tenant_code
+        WHERE ai.tenant_code = %s
+          AND ai.identifier_type = 'APPLICATION_ID'
+          AND ai.normalized_value = %s
+          AND ai.is_active IS TRUE
+          AND a.asset_type = 'APPLICATION'
+          AND a.lifecycle_status = 'ACTIVE'
+        """,
+        (
+            tenant_code,
+            identifier["normalized_value"],
+        ),
+    )
+
+    rows = cur.fetchall()
+
+    if len(rows) > 1:
+        raise RuntimeError(
+            "Application identifier resolved to "
             "multiple active assets"
         )
 
@@ -381,11 +529,18 @@ def _persist_resolution(
     engine_source,
     evidence,
 ):
-    asset_id = _find_strong_asset(
-        cur,
-        tenant_code,
-        evidence["identifiers"],
-    )
+    if evidence["asset_type"] == "APPLICATION":
+        asset_id = _find_application_asset(
+            cur,
+            tenant_code,
+            evidence["identifiers"],
+        )
+    else:
+        asset_id = _find_strong_asset(
+            cur,
+            tenant_code,
+            evidence["identifiers"],
+        )
 
     if asset_id is None:
         asset_id = _create_asset(
@@ -411,7 +566,6 @@ def _persist_resolution(
 
     return asset_id
 
-
 def resolve_asset(
     conn,
     *,
@@ -431,6 +585,11 @@ def resolve_asset(
     existing active HOST asset matches and that asset is anchored by an
     active strong host identifier. Weak scanner evidence never creates or
     merges assets.
+
+    Nuclei HTTP(S) verification targets resolve to provisional APPLICATION
+    assets using a tenant-scoped normalized web origin as APPLICATION_ID.
+    Scanner-reported IP evidence does not participate in APPLICATION
+    identity.
 
     Unsupported scanners and unresolved identities return None.
 
@@ -469,6 +628,76 @@ def resolve_asset(
                 cur,
                 asset_id,
             )
+
+        return asset_id
+
+    if engine_source == "nuclei":
+        has_application_identity = any(
+            identifier["identifier_type"]
+            == "APPLICATION_ID"
+            for identifier in evidence["identifiers"]
+        )
+
+        if not has_application_identity:
+            return None
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SAVEPOINT asset_resolution"
+            )
+
+            try:
+                asset_id = _persist_resolution(
+                    cur,
+                    tenant_code=tenant_code,
+                    engine_source=engine_source,
+                    evidence=evidence,
+                )
+
+            except errors.UniqueViolation as exc:
+                constraint_name = getattr(
+                    exc.diag,
+                    "constraint_name",
+                    None,
+                )
+
+                cur.execute(
+                    "ROLLBACK TO SAVEPOINT asset_resolution"
+                )
+
+                if (
+                    constraint_name
+                    != APPLICATION_IDENTIFIER_INDEX
+                ):
+                    raise
+
+                asset_id = _find_application_asset(
+                    cur,
+                    tenant_code,
+                    evidence["identifiers"],
+                )
+
+                if asset_id is None:
+                    raise
+
+                _touch_asset(
+                    cur,
+                    asset_id,
+                )
+
+                for identifier in evidence["identifiers"]:
+                    _record_identifier(
+                        cur,
+                        asset_id,
+                        tenant_code,
+                        engine_source,
+                        identifier,
+                    )
+
+            finally:
+                cur.execute(
+                    "RELEASE SAVEPOINT asset_resolution"
+                )
 
         return asset_id
 
