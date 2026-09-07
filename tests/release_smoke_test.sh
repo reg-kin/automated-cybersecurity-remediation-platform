@@ -36,6 +36,7 @@ SQL_FILES=(
     "database/migrations/004_deferred_verification.sql"
     "database/migrations/005_scanner_refresh_completions.sql"
     "database/migrations/006_scanner_refresh_finding_receipts.sql"
+    "database/migrations/007_asset_management.sql"
     "database/010_harden_remediation_routing.sql"
 )
 
@@ -600,6 +601,73 @@ specialised_rule_count="$(
         "
 )"
 
+asset_table_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name IN (
+              'assets',
+              'asset_identifiers',
+              'asset_endpoints',
+              'asset_context',
+              'asset_observations',
+              'asset_relationships'
+          );
+        "
+)"
+
+finding_asset_column_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'unified_security_findings'
+          AND column_name = 'asset_id'
+          AND data_type = 'bigint'
+          AND is_nullable = 'YES';
+        "
+)"
+
+finding_asset_fk_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM pg_constraint
+        WHERE conname = 'fk_unified_security_findings_asset'
+          AND contype = 'f';
+        "
+)"
+
+strong_identifier_index_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'asset_identifiers'
+          AND indexname = 'uq_asset_identifiers_strong_active';
+        "
+)"
+
 [[ "${finding_class_count}" == "${EXPECTED_FINDING_CLASSES}" ]] \
     || fail "Expected ${EXPECTED_FINDING_CLASSES} finding classes, found ${finding_class_count}."
 
@@ -615,9 +683,186 @@ specialised_rule_count="$(
 [[ "${specialised_rule_count}" == "1" ]] \
     || fail "Specialised Wazuh SCA remediation rule is missing or incorrect."
 
+
+asset_identity_constraint_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -qAt \
+        -v ON_ERROR_STOP=1 \
+        -c "
+        BEGIN;
+
+        INSERT INTO assets (
+            tenant_code,
+            asset_type,
+            canonical_name
+        )
+        VALUES
+            ('ASSET-TEST', 'HOST', 'host-a'),
+            ('ASSET-TEST', 'HOST', 'host-b');
+
+        INSERT INTO asset_identifiers (
+            asset_id,
+            tenant_code,
+            identifier_type,
+            identifier_value,
+            normalized_value,
+            source,
+            confidence
+        )
+        SELECT
+            MIN(asset_id),
+            'ASSET-TEST',
+            'WAZUH_AGENT_ID',
+            '007',
+            '007',
+            'wazuh_sca',
+            'VERY_HIGH'
+        FROM assets
+        WHERE tenant_code = 'ASSET-TEST';
+
+        DO \$\$
+        DECLARE
+            other_asset_id BIGINT;
+        BEGIN
+            SELECT MAX(asset_id)
+            INTO other_asset_id
+            FROM assets
+            WHERE tenant_code = 'ASSET-TEST';
+
+            BEGIN
+                INSERT INTO asset_identifiers (
+                    asset_id,
+                    tenant_code,
+                    identifier_type,
+                    identifier_value,
+                    normalized_value,
+                    source,
+                    confidence
+                )
+                VALUES (
+                    other_asset_id,
+                    'ASSET-TEST',
+                    'WAZUH_AGENT_ID',
+                    '007',
+                    '007',
+                    'wazuh_vulnerability',
+                    'VERY_HIGH'
+                );
+
+                RAISE EXCEPTION
+                    'duplicate strong identifier unexpectedly accepted';
+            EXCEPTION
+                WHEN unique_violation THEN
+                    NULL;
+            END;
+        END
+        \$\$;
+
+        ROLLBACK;
+
+        SELECT 1;
+        "
+)"
+
+asset_tenant_constraint_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -qAt \
+        -v ON_ERROR_STOP=1 \
+        -c "
+        BEGIN;
+
+        INSERT INTO assets (
+            tenant_code,
+            asset_type,
+            canonical_name
+        )
+        VALUES (
+            'TENANT-A',
+            'HOST',
+            'tenant-a-host'
+        );
+
+        DO \$\$
+        DECLARE
+            test_asset_id BIGINT;
+        BEGIN
+            SELECT asset_id
+            INTO test_asset_id
+            FROM assets
+            WHERE tenant_code = 'TENANT-A'
+              AND canonical_name = 'tenant-a-host'
+            ORDER BY asset_id DESC
+            LIMIT 1;
+
+            BEGIN
+                INSERT INTO asset_identifiers (
+                    asset_id,
+                    tenant_code,
+                    identifier_type,
+                    identifier_value,
+                    normalized_value,
+                    source,
+                    confidence
+                )
+                VALUES (
+                    test_asset_id,
+                    'TENANT-B',
+                    'HOSTNAME',
+                    'tenant-a-host',
+                    'tenant-a-host',
+                    'test',
+                    'MEDIUM'
+                );
+
+                RAISE EXCEPTION
+                    'cross-tenant asset identifier unexpectedly accepted';
+            EXCEPTION
+                WHEN foreign_key_violation THEN
+                    NULL;
+            END;
+        END
+        \$\$;
+
+        ROLLBACK;
+
+        SELECT 1;
+        "
+)"
+
+[[ "${asset_table_count}" == "6" ]] \
+    || fail "Expected 6 asset-management tables, found ${asset_table_count}."
+
+[[ "${finding_asset_column_count}" == "1" ]] \
+    || fail "unified_security_findings.asset_id is missing, incorrectly typed, or not nullable."
+
+[[ "${finding_asset_fk_count}" == "1" ]] \
+    || fail "Finding-to-asset foreign key is missing."
+
+[[ "${strong_identifier_index_count}" == "1" ]] \
+    || fail "Strong active asset-identifier uniqueness index is missing."
+
+
+[[ "${asset_identity_constraint_count}" == "1" ]] \
+    || fail "Strong asset identifier uniqueness behaviour is incorrect."
+
+[[ "${asset_tenant_constraint_count}" == "1" ]] \
+    || fail "Asset tenant-isolation behaviour is incorrect."
+
 echo "  finding_classes: ${finding_class_count}"
 echo "  generic_rules:   ${generic_rule_count}"
 echo "  total_rules:     ${rule_count}"
+echo "  asset_tables:    ${asset_table_count}"
+echo "  finding_asset:   ${finding_asset_column_count}"
+echo "  asset_fk:        ${finding_asset_fk_count}"
+echo "  strong_id_index: ${strong_identifier_index_count}"
+echo "  strong_id_guard: ${asset_identity_constraint_count}"
+echo "  tenant_guard:    ${asset_tenant_constraint_count}"
 echo "  orphan_rules:    ${orphan_rule_count}"
 
 pass "Database invariants are correct."
