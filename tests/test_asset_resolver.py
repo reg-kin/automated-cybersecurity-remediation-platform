@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Regression tests for deterministic Wazuh asset resolution."""
+"""Regression tests for deterministic HOST asset resolution."""
 
 import os
 import sys
@@ -213,6 +213,137 @@ def test_weak_identity_does_not_create_asset(conn):
 
         assert cur.fetchone()[0] == 0
 
+def test_nmap_binds_existing_wazuh_host_by_ip(conn):
+    wazuh_asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-E",
+        target_host="192.0.2.60",
+        engine_source="wazuh_sca",
+        engine_metadata={
+            "agent_id": "060",
+            "agent_name": "nmap-target",
+            "agent_ip": "192.0.2.60",
+        },
+    )
+
+    nmap_asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-E",
+        target_host="192.0.2.60",
+        engine_source="nmap_nse",
+        engine_metadata={},
+    )
+
+    assert nmap_asset_id == wazuh_asset_id
+
+
+def test_openvas_binds_existing_wazuh_host_by_ip(conn):
+    wazuh_asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-F",
+        target_host="192.0.2.61",
+        engine_source="wazuh_sca",
+        engine_metadata={
+            "agent_id": "061",
+            "agent_name": "openvas-target",
+            "agent_ip": "192.0.2.61",
+        },
+    )
+
+    openvas_asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-F",
+        target_host="192.0.2.61",
+        engine_source="openvas",
+        engine_metadata={},
+    )
+
+    assert openvas_asset_id == wazuh_asset_id
+
+
+def test_lynis_binds_existing_wazuh_host_by_ip(conn):
+    wazuh_asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-G",
+        target_host="192.0.2.62",
+        engine_source="wazuh_sca",
+        engine_metadata={
+            "agent_id": "062",
+            "agent_name": "lynis-target",
+            "agent_ip": "192.0.2.62",
+        },
+    )
+
+    lynis_asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-G",
+        target_host="192.0.2.62",
+        engine_source="lynis",
+        engine_metadata={},
+    )
+
+    assert lynis_asset_id == wazuh_asset_id
+
+
+def test_weak_scanner_does_not_create_host(conn):
+    asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-H",
+        target_host="192.0.2.70",
+        engine_source="nmap_nse",
+        engine_metadata={},
+    )
+
+    assert asset_id is None
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM assets
+            WHERE tenant_code = 'ASSET-RESOLVER-H'
+            """
+        )
+
+        assert cur.fetchone()[0] == 0
+
+
+def test_ambiguous_ip_remains_unresolved(conn):
+    first_asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-I",
+        target_host="192.0.2.80",
+        engine_source="wazuh_sca",
+        engine_metadata={
+            "agent_id": "080-A",
+            "agent_name": "host-a",
+            "agent_ip": "192.0.2.80",
+        },
+    )
+
+    second_asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-I",
+        target_host="192.0.2.80",
+        engine_source="wazuh_sca",
+        engine_metadata={
+            "agent_id": "080-B",
+            "agent_name": "host-b",
+            "agent_ip": "192.0.2.80",
+        },
+    )
+
+    assert first_asset_id != second_asset_id
+
+    resolved_asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-I",
+        target_host="192.0.2.80",
+        engine_source="nmap_nse",
+        engine_metadata={},
+    )
+
+    assert resolved_asset_id is None
 
 def test_unsupported_engine_remains_unresolved(conn):
     asset_id = resolve_asset(
@@ -237,6 +368,11 @@ def main():
             test_wazuh_engines_converge,
             test_same_agent_id_is_tenant_scoped,
             test_weak_identity_does_not_create_asset,
+            test_nmap_binds_existing_wazuh_host_by_ip,
+            test_openvas_binds_existing_wazuh_host_by_ip,
+            test_lynis_binds_existing_wazuh_host_by_ip,
+            test_weak_scanner_does_not_create_host,
+            test_ambiguous_ip_remains_unresolved,
             test_unsupported_engine_remains_unresolved,
         ]
 
@@ -252,7 +388,7 @@ def main():
             conn.close()
 
     print(
-        "PASS: deterministic Wazuh asset resolver "
+        "PASS: deterministic HOST asset resolver "
         "regression tests"
     )
 

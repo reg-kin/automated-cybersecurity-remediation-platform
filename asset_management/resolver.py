@@ -15,6 +15,15 @@ from psycopg2 import errors
 SUPPORTED_ENGINES = {
     "wazuh_sca",
     "wazuh_vulnerability",
+    "nmap_nse",
+    "openvas",
+    "lynis",
+}
+
+WEAK_HOST_ENGINES = {
+    "nmap_nse",
+    "openvas",
+    "lynis",
 }
 
 STRONG_IDENTIFIER_INDEX = "uq_asset_identifiers_strong_active"
@@ -106,6 +115,31 @@ def _extract_wazuh_evidence(
         "identifiers": identifiers,
     }
 
+def _extract_weak_host_evidence(
+    target_host,
+):
+    target_ip = _normalise_ip(target_host)
+
+    if target_ip is None:
+        return {
+            "asset_type": "HOST",
+            "canonical_name": None,
+            "identifiers": [],
+        }
+
+    return {
+        "asset_type": "HOST",
+        "canonical_name": target_ip,
+        "identifiers": [
+            {
+                "identifier_type": "IP_ADDRESS",
+                "identifier_value": target_ip,
+                "normalized_value": target_ip,
+                "confidence": "MEDIUM",
+                "is_authoritative": False,
+            }
+        ],
+    }
 
 def _extract_evidence(
     target_host,
@@ -115,11 +149,15 @@ def _extract_evidence(
     if engine_source not in SUPPORTED_ENGINES:
         return None
 
+    if engine_source in WEAK_HOST_ENGINES:
+        return _extract_weak_host_evidence(
+            target_host,
+        )
+
     return _extract_wazuh_evidence(
         target_host,
         engine_metadata,
     )
-
 
 def _find_strong_asset(
     cur,
@@ -167,6 +205,61 @@ def _find_strong_asset(
 
     return None
 
+def _find_weak_host_asset(
+    cur,
+    tenant_code,
+    identifiers,
+):
+    weak_ips = [
+        identifier
+        for identifier in identifiers
+        if identifier["identifier_type"]
+        == "IP_ADDRESS"
+    ]
+
+    if not weak_ips:
+        return None
+
+    identifier = weak_ips[0]
+
+    cur.execute(
+        """
+        SELECT DISTINCT ai.asset_id
+        FROM asset_identifiers AS ai
+        JOIN assets AS a
+          ON a.asset_id = ai.asset_id
+         AND a.tenant_code = ai.tenant_code
+        WHERE ai.tenant_code = %s
+          AND ai.identifier_type = 'IP_ADDRESS'
+          AND ai.normalized_value = %s
+          AND ai.is_active IS TRUE
+          AND a.asset_type = 'HOST'
+          AND a.lifecycle_status = 'ACTIVE'
+          AND EXISTS (
+              SELECT 1
+              FROM asset_identifiers AS strong_ai
+              WHERE strong_ai.asset_id = ai.asset_id
+                AND strong_ai.tenant_code = ai.tenant_code
+                AND strong_ai.is_active IS TRUE
+                AND strong_ai.identifier_type IN (
+                    'WAZUH_AGENT_ID',
+                    'MACHINE_ID',
+                    'CLOUD_INSTANCE_ID'
+                )
+          )
+        """,
+        (
+            tenant_code,
+            identifier["normalized_value"],
+        ),
+    )
+
+    rows = cur.fetchall()
+
+    if len(rows) != 1:
+        return None
+
+    return rows[0][0]
 
 def _create_asset(
     cur,
@@ -327,14 +420,19 @@ def resolve_asset(
     engine_source,
     engine_metadata,
 ):
-    """Resolve Wazuh evidence to a canonical HOST asset.
 
-    WAZUH_AGENT_ID is the authoritative convergence key. Hostname and IP
-    evidence is recorded on the resolved asset but is not used to merge
-    existing assets.
+    """Resolve scanner evidence to a canonical asset.
 
-    Unsupported scanners and Wazuh findings without a strong agent identity
-    remain unresolved and return None.
+    WAZUH_AGENT_ID is the authoritative Wazuh convergence key. Wazuh
+    hostname and IP evidence is recorded on the resolved asset but is not
+    used to merge existing assets.
+
+    Nmap, OpenVAS and Lynis may bind by IP address only when exactly one
+    existing active HOST asset matches and that asset is anchored by an
+    active strong host identifier. Weak scanner evidence never creates or
+    merges assets.
+
+    Unsupported scanners and unresolved identities return None.
 
     The caller owns the surrounding transaction.
     """
@@ -355,6 +453,24 @@ def resolve_asset(
 
     if evidence is None:
         return None
+
+    if engine_source in WEAK_HOST_ENGINES:
+        with conn.cursor() as cur:
+            asset_id = _find_weak_host_asset(
+                cur,
+                tenant_code,
+                evidence["identifiers"],
+            )
+
+            if asset_id is None:
+                return None
+
+            _touch_asset(
+                cur,
+                asset_id,
+            )
+
+        return asset_id
 
     has_strong_identity = any(
         identifier["identifier_type"]
