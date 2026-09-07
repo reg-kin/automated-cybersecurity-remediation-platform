@@ -37,6 +37,7 @@ SQL_FILES=(
     "database/migrations/005_scanner_refresh_completions.sql"
     "database/migrations/006_scanner_refresh_finding_receipts.sql"
     "database/migrations/007_asset_management.sql"
+    "database/migrations/008_application_asset_identity.sql"
     "database/010_harden_remediation_routing.sql"
 )
 
@@ -705,6 +706,21 @@ strong_identifier_index_count="$(
         "
 )"
 
+application_identifier_index_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'asset_identifiers'
+          AND indexname = 'uq_asset_identifiers_application_active';
+        "
+)"
+
 [[ "${finding_class_count}" == "${EXPECTED_FINDING_CLASSES}" ]] \
     || fail "Expected ${EXPECTED_FINDING_CLASSES} finding classes, found ${finding_class_count}."
 
@@ -719,7 +735,6 @@ strong_identifier_index_count="$(
 
 [[ "${specialised_rule_count}" == "1" ]] \
     || fail "Specialised Wazuh SCA remediation rule is missing or incorrect."
-
 
 asset_identity_constraint_count="$(
     docker exec -i "${PG_CONTAINER}" \
@@ -791,6 +806,97 @@ asset_identity_constraint_count="$(
 
                 RAISE EXCEPTION
                     'duplicate strong identifier unexpectedly accepted';
+            EXCEPTION
+                WHEN unique_violation THEN
+                    NULL;
+            END;
+        END
+        \$\$;
+
+        ROLLBACK;
+
+        SELECT 1;
+        "
+)"
+
+application_identity_constraint_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -qAt \
+        -v ON_ERROR_STOP=1 \
+        -c "
+        BEGIN;
+
+        INSERT INTO assets (
+            tenant_code,
+            asset_type,
+            canonical_name
+        )
+        VALUES
+            (
+                'APPLICATION-ASSET-TEST',
+                'APPLICATION',
+                'https://example.test'
+            ),
+            (
+                'APPLICATION-ASSET-TEST',
+                'APPLICATION',
+                'duplicate-application'
+            );
+
+        INSERT INTO asset_identifiers (
+            asset_id,
+            tenant_code,
+            identifier_type,
+            identifier_value,
+            normalized_value,
+            source,
+            confidence
+        )
+        SELECT
+            MIN(asset_id),
+            'APPLICATION-ASSET-TEST',
+            'APPLICATION_ID',
+            'https://example.test',
+            'https://example.test',
+            'nuclei',
+            'HIGH'
+        FROM assets
+        WHERE tenant_code = 'APPLICATION-ASSET-TEST';
+
+        DO \$\$
+        DECLARE
+            other_asset_id BIGINT;
+        BEGIN
+            SELECT MAX(asset_id)
+            INTO other_asset_id
+            FROM assets
+            WHERE tenant_code = 'APPLICATION-ASSET-TEST';
+
+            BEGIN
+                INSERT INTO asset_identifiers (
+                    asset_id,
+                    tenant_code,
+                    identifier_type,
+                    identifier_value,
+                    normalized_value,
+                    source,
+                    confidence
+                )
+                VALUES (
+                    other_asset_id,
+                    'APPLICATION-ASSET-TEST',
+                    'APPLICATION_ID',
+                    'https://example.test',
+                    'https://example.test',
+                    'nuclei',
+                    'HIGH'
+                );
+
+                RAISE EXCEPTION
+                    'duplicate application identifier unexpectedly accepted';
             EXCEPTION
                 WHEN unique_violation THEN
                     NULL;
@@ -884,9 +990,14 @@ asset_tenant_constraint_count="$(
 [[ "${strong_identifier_index_count}" == "1" ]] \
     || fail "Strong active asset-identifier uniqueness index is missing."
 
+[[ "${application_identifier_index_count}" == "1" ]] \
+    || fail "Active application-identifier uniqueness index is missing."
 
 [[ "${asset_identity_constraint_count}" == "1" ]] \
     || fail "Strong asset identifier uniqueness behaviour is incorrect."
+
+[[ "${application_identity_constraint_count}" == "1" ]] \
+    || fail "Application identifier uniqueness behaviour is incorrect."
 
 [[ "${asset_tenant_constraint_count}" == "1" ]] \
     || fail "Asset tenant-isolation behaviour is incorrect."
@@ -899,6 +1010,8 @@ echo "  finding_asset:   ${finding_asset_column_count}"
 echo "  asset_fk:        ${finding_asset_fk_count}"
 echo "  strong_id_index: ${strong_identifier_index_count}"
 echo "  strong_id_guard: ${asset_identity_constraint_count}"
+echo "  app_id_index:    ${application_identifier_index_count}"
+echo "  app_id_guard:    ${application_identity_constraint_count}"
 echo "  tenant_guard:    ${asset_tenant_constraint_count}"
 echo "  orphan_rules:    ${orphan_rule_count}"
 
