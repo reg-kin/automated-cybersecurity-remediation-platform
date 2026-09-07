@@ -202,6 +202,7 @@ def test_weak_identity_does_not_create_asset(conn):
 
     assert asset_id is None
 
+
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -212,6 +213,7 @@ def test_weak_identity_does_not_create_asset(conn):
         )
 
         assert cur.fetchone()[0] == 0
+
 
 def test_nmap_binds_existing_wazuh_host_by_ip(conn):
     wazuh_asset_id = resolve_asset(
@@ -348,13 +350,293 @@ def test_ambiguous_ip_remains_unresolved(conn):
 def test_unsupported_engine_remains_unresolved(conn):
     asset_id = resolve_asset(
         conn,
-        tenant_code="ASSET-RESOLVER-E",
+        tenant_code="ASSET-RESOLVER-J",
         target_host="192.0.2.50",
-        engine_source="openvas",
+        engine_source="unsupported_scanner",
         engine_metadata={},
     )
 
     assert asset_id is None
+
+
+def test_nuclei_creates_application_from_https_origin(conn):
+    asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-K",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test",
+            "matched_at": "https://example.test/search?q=test",
+            "ip": "192.0.2.90",
+        },
+    )
+
+    assert asset_id is not None
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                asset_type,
+                canonical_name,
+                inventory_state
+            FROM assets
+            WHERE asset_id = %s
+            """,
+            (asset_id,),
+        )
+
+        assert cur.fetchone() == (
+            "APPLICATION",
+            "https://example.test",
+            "PROVISIONAL",
+        )
+
+        cur.execute(
+            """
+            SELECT
+                identifier_type,
+                normalized_value,
+                source,
+                confidence,
+                is_authoritative
+            FROM asset_identifiers
+            WHERE asset_id = %s
+            ORDER BY identifier_type
+            """,
+            (asset_id,),
+        )
+
+        rows = cur.fetchall()
+
+    assert (
+        "APPLICATION_ID",
+        "https://example.test",
+        "nuclei",
+        "HIGH",
+        False,
+    ) in rows
+
+
+def test_nuclei_same_origin_converges(conn):
+    first = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-L",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test",
+            "matched_at": "https://example.test/search?q=first",
+            "ip": "192.0.2.91",
+        },
+    )
+
+    second = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-L",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test",
+            "matched_at": "https://example.test/login",
+            "ip": "192.0.2.92",
+        },
+    )
+
+    assert first is not None
+    assert second == first
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM assets
+            WHERE tenant_code = 'ASSET-RESOLVER-L'
+            """
+        )
+
+        assert cur.fetchone()[0] == 1
+
+
+def test_nuclei_application_identity_is_tenant_scoped(conn):
+    first = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-M1",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test",
+        },
+    )
+
+    second = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-M2",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test",
+        },
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first != second
+
+
+def test_nuclei_non_default_port_is_distinct(conn):
+    default_port_asset = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-N",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test",
+        },
+    )
+
+    alternate_port_asset = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-N",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test:8443",
+        },
+    )
+
+    assert default_port_asset is not None
+    assert alternate_port_asset is not None
+    assert alternate_port_asset != default_port_asset
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT canonical_name
+            FROM assets
+            WHERE tenant_code = 'ASSET-RESOLVER-N'
+            ORDER BY canonical_name
+            """
+        )
+
+        assert cur.fetchall() == [
+            ("https://example.test",),
+            ("https://example.test:8443",),
+        ]
+
+
+def test_nuclei_default_https_port_converges(conn):
+    implicit_port = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-O",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test",
+        },
+    )
+
+    explicit_port = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-O",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test:443",
+        },
+    )
+
+    assert implicit_port is not None
+    assert explicit_port == implicit_port
+
+
+def test_nuclei_non_http_target_remains_unresolved(conn):
+    asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-P",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "ssh://example.test:22",
+        },
+    )
+
+    assert asset_id is None
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM assets
+            WHERE tenant_code = 'ASSET-RESOLVER-P'
+            """
+        )
+
+        assert cur.fetchone()[0] == 0
+
+def test_nuclei_non_origin_target_remains_unresolved(conn):
+    asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-P2",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test/admin?x=1",
+        },
+    )
+
+    assert asset_id is None
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM assets
+            WHERE tenant_code = 'ASSET-RESOLVER-P2'
+            """
+        )
+
+        assert cur.fetchone()[0] == 0
+
+
+def test_nuclei_ip_does_not_determine_application_identity(conn):
+    first = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-Q",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test",
+            "ip": "192.0.2.100",
+        },
+    )
+
+    second = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-Q",
+        target_host="example.test",
+        engine_source="nuclei",
+        engine_metadata={
+            "verification_target": "https://example.test",
+            "ip": "192.0.2.101",
+        },
+    )
+
+    assert first is not None
+    assert second == first
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM assets
+            WHERE tenant_code = 'ASSET-RESOLVER-Q'
+              AND asset_type = 'HOST'
+            """
+        )
+
+        assert cur.fetchone()[0] == 0
 
 
 def main():
@@ -374,6 +656,14 @@ def main():
             test_weak_scanner_does_not_create_host,
             test_ambiguous_ip_remains_unresolved,
             test_unsupported_engine_remains_unresolved,
+            test_nuclei_creates_application_from_https_origin,
+            test_nuclei_same_origin_converges,
+            test_nuclei_application_identity_is_tenant_scoped,
+            test_nuclei_non_default_port_is_distinct,
+            test_nuclei_default_https_port_converges,
+            test_nuclei_non_http_target_remains_unresolved,
+            test_nuclei_non_origin_target_remains_unresolved,
+            test_nuclei_ip_does_not_determine_application_identity,
         ]
 
         for test in tests:
@@ -388,10 +678,11 @@ def main():
             conn.close()
 
     print(
-        "PASS: deterministic HOST asset resolver "
+        "PASS: deterministic asset resolver "
         "regression tests"
     )
 
-
 if __name__ == "__main__":
+
+
     main()
