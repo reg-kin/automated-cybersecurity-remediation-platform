@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 # Canonical Ollama enrichment worker. Ollama enriches risk only; routing is deterministic DB/n8n.
+
 import json, logging, os, sys, urllib.request
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from jsonschema import Draft7Validator, FormatChecker
 from psycopg2.pool import SimpleConnectionPool
 from psycopg2.extras import Json
+
+from asset_management.resolver import resolve_asset
 
 CONFIG_PATH=os.getenv('ENRICHER_CONFIG','/opt/automated-remediation/config.json')
 DEFAULT={'ollama_url':'http://127.0.0.1:11434/api/chat','ollama_model':'phi3:latest','ollama_timeout':120,'pg_host':'127.0.0.1','pg_port':5432,'pg_dbname':'security_portal','pg_user':'telemetry_admin','pg_password':'','pg_minconn':1,'pg_maxconn':5,'log_dir':'/var/log/automated-remediation','recurrence_grace_seconds':300}
@@ -584,11 +592,11 @@ def process_ai_enrichment(payload):
             cur.execute('SELECT 1 FROM finding_class_catalogue WHERE finding_class=%s AND finding_category=%s AND enabled=TRUE',(f['finding_class'],f['finding_category']))
             if not cur.fetchone(): raise ValueError(f"Unknown/disabled/category-mismatched finding_class: {f['finding_class']}")
         ai=enrich(c,f)
-        sql='''INSERT INTO unified_security_findings(tenant_code,tenant_service_tier,target_host,engine_source,finding_category,finding_class,finding_key,finding_title,lifecycle_status,detected_at,last_seen_at,remediated_at,last_verified_at,compliance_result,severity_level,severity_score,engine_metadata,ai_analysis)
-        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        sql='''INSERT INTO unified_security_findings(tenant_code,tenant_service_tier,target_host,engine_source,finding_category,finding_class,finding_key,finding_title,lifecycle_status,detected_at,last_seen_at,remediated_at,last_verified_at,compliance_result,severity_level,severity_score,engine_metadata,ai_analysis,asset_id)
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT(tenant_code,target_host,engine_source,finding_key) DO UPDATE SET
           tenant_service_tier=EXCLUDED.tenant_service_tier,finding_category=EXCLUDED.finding_category,finding_class=EXCLUDED.finding_class,finding_title=EXCLUDED.finding_title,
-          compliance_result=EXCLUDED.compliance_result,severity_level=EXCLUDED.severity_level,severity_score=EXCLUDED.severity_score,engine_metadata=EXCLUDED.engine_metadata,ai_analysis=EXCLUDED.ai_analysis,
+          compliance_result=EXCLUDED.compliance_result,severity_level=EXCLUDED.severity_level,severity_score=EXCLUDED.severity_score,engine_metadata=EXCLUDED.engine_metadata,ai_analysis=EXCLUDED.ai_analysis,asset_id=COALESCE(EXCLUDED.asset_id,unified_security_findings.asset_id),
           last_seen_at=GREATEST(unified_security_findings.last_seen_at,EXCLUDED.detected_at),
           lifecycle_status=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN 'OPEN' ELSE unified_security_findings.lifecycle_status END,
           recurrence_count=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN unified_security_findings.recurrence_count+1 ELSE unified_security_findings.recurrence_count END,
@@ -597,9 +605,19 @@ def process_ai_enrichment(payload):
           last_error=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN 'Previously resolved finding detected again by scanner' ELSE unified_security_findings.last_error END,
           updated_at=now()
         RETURNING finding_id,lifecycle_status,recurrence_count,last_reopened_at'''
-        vals=(f['tenant_code'],f['tenant_service_tier'],f['target_host'],f['engine_source'],f['finding_category'],f['finding_class'],f['finding_key'],f['finding_title'],f['lifecycle_status'],f['detected_at'],f['detected_at'],f.get('remediated_at'),f.get('last_verified_at'),f.get('compliance_result'),f['severity_level'],f['severity_score'],Json(f['engine_metadata']),Json(ai),grace,grace,grace,grace,grace)
         with conn:
+            asset_id=resolve_asset(
+                conn,
+                tenant_code=f['tenant_code'],
+                target_host=f['target_host'],
+                engine_source=f['engine_source'],
+                engine_metadata=f['engine_metadata'],
+            )
+
+            vals=(f['tenant_code'],f['tenant_service_tier'],f['target_host'],f['engine_source'],f['finding_category'],f['finding_class'],f['finding_key'],f['finding_title'],f['lifecycle_status'],f['detected_at'],f['detected_at'],f.get('remediated_at'),f.get('last_verified_at'),f.get('compliance_result'),f['severity_level'],f['severity_score'],Json(f['engine_metadata']),Json(ai),asset_id,grace,grace,grace,grace,grace)
+
             with conn.cursor() as cur: cur.execute(sql,vals); row=cur.fetchone()
+
             metadata=f.get('engine_metadata') or {}
             refresh_id=metadata.get('refresh_id')
             agent_id=metadata.get('agent_id')
