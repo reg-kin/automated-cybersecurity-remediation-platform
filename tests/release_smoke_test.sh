@@ -38,6 +38,7 @@ SQL_FILES=(
     "database/migrations/006_scanner_refresh_finding_receipts.sql"
     "database/migrations/007_asset_management.sql"
     "database/migrations/008_application_asset_identity.sql"
+    "database/migrations/009_risk_contextualisation.sql"
     "database/010_harden_remediation_routing.sql"
 )
 
@@ -571,9 +572,28 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_asset_context.py \
     || fail "Asset context management regression failed."
 
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${PG_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_risk_persistence.py \
+    || fail "Risk persistence regression failed."
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${PG_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_risk_reassessment.py \
+    || fail "Risk reassessment regression failed."
+
+python3 tests/test_risk_contextualisation.py \
+    || fail "Risk contextualisation regression failed."
+
 unset PG_PASSWORD
 
-pass "Deterministic asset resolution is correct."
+pass "Deterministic asset and risk contextualisation checks are correct."
 
 # ---------------------------------------------------------------------------
 # 10. Database invariant checks
@@ -726,6 +746,62 @@ application_identifier_index_count="$(
         WHERE schemaname = 'public'
           AND tablename = 'asset_identifiers'
           AND indexname = 'uq_asset_identifiers_application_active';
+        "
+)"
+
+risk_assessment_table_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'finding_risk_assessments';
+        "
+)"
+
+risk_assessment_finding_fk_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM pg_constraint
+        WHERE conname = 'fk_risk_assessment_finding_tenant'
+          AND contype = 'f';
+        "
+)"
+
+risk_assessment_asset_fk_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM pg_constraint
+        WHERE conname = 'fk_risk_assessment_asset_tenant'
+          AND contype = 'f';
+        "
+)"
+
+risk_assessment_pk_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM pg_constraint
+        WHERE conrelid = 'finding_risk_assessments'::regclass
+          AND contype = 'p';
         "
 )"
 
@@ -986,6 +1062,314 @@ asset_tenant_constraint_count="$(
         "
 )"
 
+risk_assessment_constraint_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -qAt \
+        -v ON_ERROR_STOP=1 \
+        -c "
+        BEGIN;
+
+        DO \$\$
+        DECLARE
+            asset_a BIGINT;
+            finding_a BIGINT;
+            finding_b BIGINT;
+            retained_count INTEGER;
+            cascade_count INTEGER;
+        BEGIN
+            INSERT INTO assets (
+                tenant_code,
+                asset_type,
+                canonical_name
+            )
+            VALUES (
+                'RISK-TENANT-A',
+                'HOST',
+                'risk-host-a'
+            )
+            RETURNING asset_id INTO asset_a;
+
+            INSERT INTO unified_security_findings (
+                tenant_code,
+                tenant_service_tier,
+                target_host,
+                engine_source,
+                finding_category,
+                finding_class,
+                finding_key,
+                finding_title,
+                severity_level,
+                severity_score
+            )
+            VALUES (
+                'RISK-TENANT-A',
+                'STANDARD',
+                'risk-host-a',
+                'openvas',
+                'vulnerability',
+                'cve',
+                'risk-test-a',
+                'Risk foundation test A',
+                'HIGH',
+                8.0
+            )
+            RETURNING finding_id INTO finding_a;
+
+            INSERT INTO unified_security_findings (
+                tenant_code,
+                tenant_service_tier,
+                target_host,
+                engine_source,
+                finding_category,
+                finding_class,
+                finding_key,
+                finding_title,
+                severity_level,
+                severity_score
+            )
+            VALUES (
+                'RISK-TENANT-B',
+                'STANDARD',
+                'risk-host-b',
+                'openvas',
+                'vulnerability',
+                'cve',
+                'risk-test-b',
+                'Risk foundation test B',
+                'MEDIUM',
+                5.0
+            )
+            RETURNING finding_id INTO finding_b;
+
+            INSERT INTO finding_risk_assessments (
+                finding_id,
+                tenant_code,
+                asset_id,
+                assessment_status,
+                base_severity_score,
+                base_severity_level,
+                contextual_risk_score,
+                contextual_risk_level,
+                assessment_factors,
+                context_snapshot,
+                assessment_model
+            )
+            VALUES (
+                finding_a,
+                'RISK-TENANT-A',
+                asset_a,
+                'ASSESSED',
+                8.0,
+                'HIGH',
+                8.25,
+                'HIGH',
+                '{}'::jsonb,
+                '{}'::jsonb,
+                'CONTEXTUAL_RISK_V1'
+            );
+
+            BEGIN
+                INSERT INTO finding_risk_assessments (
+                    finding_id,
+                    tenant_code,
+                    assessment_status,
+                    contextual_risk_score,
+                    contextual_risk_level,
+                    assessment_model
+                )
+                VALUES (
+                    finding_a,
+                    'RISK-TENANT-A',
+                    'PARTIAL',
+                    8.0,
+                    'HIGH',
+                    'CONTEXTUAL_RISK_V1'
+                );
+
+                RAISE EXCEPTION
+                    'duplicate risk assessment unexpectedly accepted';
+            EXCEPTION
+                WHEN unique_violation THEN
+                    NULL;
+            END;
+
+            BEGIN
+                INSERT INTO finding_risk_assessments (
+                    finding_id,
+                    tenant_code,
+                    assessment_status,
+                    contextual_risk_score,
+                    contextual_risk_level,
+                    assessment_model
+                )
+                VALUES (
+                    finding_b,
+                    'RISK-TENANT-A',
+                    'PARTIAL',
+                    5.0,
+                    'MEDIUM',
+                    'CONTEXTUAL_RISK_V1'
+                );
+
+                RAISE EXCEPTION
+                    'cross-tenant finding risk assessment unexpectedly accepted';
+            EXCEPTION
+                WHEN foreign_key_violation THEN
+                    NULL;
+            END;
+
+            BEGIN
+                INSERT INTO finding_risk_assessments (
+                    finding_id,
+                    tenant_code,
+                    asset_id,
+                    assessment_status,
+                    contextual_risk_score,
+                    contextual_risk_level,
+                    assessment_model
+                )
+                VALUES (
+                    finding_b,
+                    'RISK-TENANT-B',
+                    asset_a,
+                    'PARTIAL',
+                    5.0,
+                    'MEDIUM',
+                    'CONTEXTUAL_RISK_V1'
+                );
+
+                RAISE EXCEPTION
+                    'cross-tenant risk asset unexpectedly accepted';
+            EXCEPTION
+                WHEN foreign_key_violation THEN
+                    NULL;
+            END;
+
+            BEGIN
+                INSERT INTO finding_risk_assessments (
+                    finding_id,
+                    tenant_code,
+                    assessment_status,
+                    assessment_model
+                )
+                VALUES (
+                    finding_b,
+                    'RISK-TENANT-B',
+                    'ASSESSED',
+                    'CONTEXTUAL_RISK_V1'
+                );
+
+                RAISE EXCEPTION
+                    'scored assessment without score unexpectedly accepted';
+            EXCEPTION
+                WHEN check_violation THEN
+                    NULL;
+            END;
+
+            BEGIN
+                INSERT INTO finding_risk_assessments (
+                    finding_id,
+                    tenant_code,
+                    assessment_status,
+                    contextual_risk_score,
+                    contextual_risk_level,
+                    assessment_model
+                )
+                VALUES (
+                    finding_b,
+                    'RISK-TENANT-B',
+                    'UNSCORABLE',
+                    5.0,
+                    'MEDIUM',
+                    'CONTEXTUAL_RISK_V1'
+                );
+
+                RAISE EXCEPTION
+                    'UNSCORABLE assessment with score unexpectedly accepted';
+            EXCEPTION
+                WHEN check_violation THEN
+                    NULL;
+            END;
+
+            BEGIN
+                INSERT INTO finding_risk_assessments (
+                    finding_id,
+                    tenant_code,
+                    assessment_status,
+                    contextual_risk_score,
+                    contextual_risk_level,
+                    assessment_model
+                )
+                VALUES (
+                    finding_b,
+                    'RISK-TENANT-B',
+                    'PARTIAL',
+                    10.01,
+                    'CRITICAL',
+                    'CONTEXTUAL_RISK_V1'
+                );
+
+                RAISE EXCEPTION
+                    'out-of-range contextual risk score unexpectedly accepted';
+            EXCEPTION
+                WHEN check_violation THEN
+                    NULL;
+            END;
+
+            DELETE FROM assets
+            WHERE asset_id = asset_a;
+
+            SELECT COUNT(*)
+            INTO retained_count
+            FROM finding_risk_assessments
+            WHERE finding_id = finding_a
+              AND tenant_code = 'RISK-TENANT-A'
+              AND asset_id IS NULL;
+
+            IF retained_count <> 1 THEN
+                RAISE EXCEPTION
+                    'asset deletion did not preserve risk assessment';
+            END IF;
+
+            DELETE FROM unified_security_findings
+            WHERE finding_id = finding_a;
+
+            SELECT COUNT(*)
+            INTO cascade_count
+            FROM finding_risk_assessments
+            WHERE finding_id = finding_a;
+
+            IF cascade_count <> 0 THEN
+                RAISE EXCEPTION
+                    'finding deletion did not cascade to risk assessment';
+            END IF;
+        END
+        \$\$;
+
+        ROLLBACK;
+
+        SELECT 1;
+        "
+)"
+
+[[ "${risk_assessment_table_count}" == "1" ]] \
+    || fail "finding_risk_assessments table is missing."
+
+[[ "${risk_assessment_finding_fk_count}" == "1" ]] \
+    || fail "Risk-assessment finding tenant foreign key is missing."
+
+[[ "${risk_assessment_asset_fk_count}" == "1" ]] \
+    || fail "Risk-assessment asset tenant foreign key is missing."
+
+[[ "${risk_assessment_pk_count}" == "1" ]] \
+    || fail "Risk-assessment primary key is missing."
+
+[[ "${risk_assessment_constraint_count}" == "1" ]] \
+    || fail "Risk-assessment database integrity behaviour is incorrect."
+
 [[ "${asset_table_count}" == "6" ]] \
     || fail "Expected 6 asset-management tables, found ${asset_table_count}."
 
@@ -1013,6 +1397,11 @@ asset_tenant_constraint_count="$(
 echo "  finding_classes: ${finding_class_count}"
 echo "  generic_rules:   ${generic_rule_count}"
 echo "  total_rules:     ${rule_count}"
+echo "  risk_table:      ${risk_assessment_table_count}"
+echo "  risk_finding_fk: ${risk_assessment_finding_fk_count}"
+echo "  risk_asset_fk:   ${risk_assessment_asset_fk_count}"
+echo "  risk_pk:         ${risk_assessment_pk_count}"
+echo "  risk_guard:      ${risk_assessment_constraint_count}"
 echo "  asset_tables:    ${asset_table_count}"
 echo "  finding_asset:   ${finding_asset_column_count}"
 echo "  asset_fk:        ${finding_asset_fk_count}"

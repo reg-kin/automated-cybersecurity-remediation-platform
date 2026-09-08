@@ -16,6 +16,9 @@ from psycopg2.pool import SimpleConnectionPool
 from psycopg2.extras import Json
 
 from asset_management.resolver import resolve_asset
+from asset_management.context import get_asset_context
+from risk_management.contextualiser import contextualise_risk
+from risk_management.persistence import upsert_risk_assessment
 
 CONFIG_PATH=os.getenv('ENRICHER_CONFIG','/opt/automated-remediation/config.json')
 DEFAULT={'ollama_url':'http://127.0.0.1:11434/api/chat','ollama_model':'phi3:latest','ollama_timeout':120,'pg_host':'127.0.0.1','pg_port':5432,'pg_dbname':'security_portal','pg_user':'telemetry_admin','pg_password':'','pg_minconn':1,'pg_maxconn':5,'log_dir':'/var/log/automated-remediation','recurrence_grace_seconds':300}
@@ -604,7 +607,7 @@ def process_ai_enrichment(payload):
           remediated_at=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN NULL ELSE unified_security_findings.remediated_at END,
           last_error=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN 'Previously resolved finding detected again by scanner' ELSE unified_security_findings.last_error END,
           updated_at=now()
-        RETURNING finding_id,lifecycle_status,recurrence_count,last_reopened_at'''
+        RETURNING finding_id,lifecycle_status,recurrence_count,last_reopened_at,asset_id'''
         with conn:
             asset_id=resolve_asset(
                 conn,
@@ -617,6 +620,35 @@ def process_ai_enrichment(payload):
             vals=(f['tenant_code'],f['tenant_service_tier'],f['target_host'],f['engine_source'],f['finding_category'],f['finding_class'],f['finding_key'],f['finding_title'],f['lifecycle_status'],f['detected_at'],f['detected_at'],f.get('remediated_at'),f.get('last_verified_at'),f.get('compliance_result'),f['severity_level'],f['severity_score'],Json(f['engine_metadata']),Json(ai),asset_id,grace,grace,grace,grace,grace)
 
             with conn.cursor() as cur: cur.execute(sql,vals); row=cur.fetchone()
+
+            persisted_asset_id = row[4]
+
+            if persisted_asset_id is not None:
+                asset_context = get_asset_context(
+                    conn,
+                    tenant_code=f['tenant_code'],
+                    asset_id=persisted_asset_id,
+                )
+            else:
+                asset_context = None
+
+            risk_assessment = contextualise_risk(
+                severity_score=f['severity_score'],
+                severity_level=f['severity_level'],
+                asset_id=persisted_asset_id,
+                asset_context=asset_context,
+            )
+
+            risk_assessment['assessment_factors'][
+                'tenant_service_tier'
+            ] = f['tenant_service_tier']
+
+            upsert_risk_assessment(
+                conn,
+                finding_id=row[0],
+                tenant_code=f['tenant_code'],
+                assessment=risk_assessment,
+            )
 
             metadata=f.get('engine_metadata') or {}
             refresh_id=metadata.get('refresh_id')
