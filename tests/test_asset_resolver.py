@@ -638,6 +638,277 @@ def test_nuclei_ip_does_not_determine_application_identity(conn):
 
         assert cur.fetchone()[0] == 0
 
+def test_trivy_digest_creates_container_image(conn):
+    asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-R",
+        target_host="nginx:1.25",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "image",
+            "container_image_digest": (
+                "sha256:"
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+            "container_image_reference": "nginx:1.25",
+        },
+    )
+
+    assert asset_id is not None
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                asset_type,
+                canonical_name,
+                inventory_state
+            FROM assets
+            WHERE asset_id = %s
+            """,
+            (asset_id,),
+        )
+
+        assert cur.fetchone() == (
+            "CONTAINER_IMAGE",
+            "nginx:1.25",
+            "PROVISIONAL",
+        )
+
+        cur.execute(
+            """
+            SELECT
+                identifier_type,
+                normalized_value,
+                source,
+                confidence,
+                is_authoritative
+            FROM asset_identifiers
+            WHERE asset_id = %s
+            ORDER BY identifier_type
+            """,
+            (asset_id,),
+        )
+
+        rows = cur.fetchall()
+
+    assert (
+        "CONTAINER_IMAGE_DIGEST",
+        (
+            "sha256:"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        "trivy",
+        "VERY_HIGH",
+        True,
+    ) in rows
+
+    assert (
+        "CONTAINER_IMAGE_REFERENCE",
+        "nginx:1.25",
+        "trivy",
+        "HIGH",
+        False,
+    ) in rows
+
+
+def test_trivy_same_digest_converges(conn):
+    first = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-S",
+        target_host="nginx:1.25",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "image",
+            "container_image_digest": (
+                "sha256:"
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            ),
+            "container_image_reference": "nginx:1.25",
+        },
+    )
+
+    second = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-S",
+        target_host="registry.example/nginx:stable",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "image",
+            "container_image_digest": (
+                "sha256:"
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            ),
+            "container_image_reference": (
+                "registry.example/nginx:stable"
+            ),
+        },
+    )
+
+    assert first is not None
+    assert second == first
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM assets
+            WHERE tenant_code = 'ASSET-RESOLVER-S'
+            """
+        )
+
+        assert cur.fetchone()[0] == 1
+
+
+def test_trivy_digest_identity_is_tenant_scoped(conn):
+    digest = (
+        "sha256:"
+        "cccccccccccccccccccccccccccccccc"
+        "cccccccccccccccccccccccccccccccc"
+    )
+
+    first = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-T1",
+        target_host="nginx:1.25",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "image",
+            "container_image_digest": digest,
+            "container_image_reference": "nginx:1.25",
+        },
+    )
+
+    second = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-T2",
+        target_host="nginx:1.25",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "image",
+            "container_image_digest": digest,
+            "container_image_reference": "nginx:1.25",
+        },
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first != second
+
+
+def test_trivy_same_reference_different_digest_is_distinct(conn):
+    first = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-U",
+        target_host="nginx:latest",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "image",
+            "container_image_digest": (
+                "sha256:"
+                "dddddddddddddddddddddddddddddddd"
+                "dddddddddddddddddddddddddddddddd"
+            ),
+            "container_image_reference": "nginx:latest",
+        },
+    )
+
+    second = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-U",
+        target_host="nginx:latest",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "image",
+            "container_image_digest": (
+                "sha256:"
+                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ),
+            "container_image_reference": "nginx:latest",
+        },
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first != second
+
+
+def test_trivy_reference_only_remains_unresolved(conn):
+    asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-V",
+        target_host="nginx:1.25",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "image",
+            "container_image_reference": "nginx:1.25",
+        },
+    )
+
+    assert asset_id is None
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM assets
+            WHERE tenant_code = 'ASSET-RESOLVER-V'
+            """
+        )
+
+        assert cur.fetchone()[0] == 0
+
+
+def test_trivy_invalid_digest_remains_unresolved(conn):
+    asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-W",
+        target_host="nginx:1.25",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "image",
+            "container_image_digest": "sha256:not-a-valid-digest",
+            "container_image_reference": "nginx:1.25",
+        },
+    )
+
+    assert asset_id is None
+
+
+def test_trivy_folder_scan_does_not_resolve_container_image(conn):
+    asset_id = resolve_asset(
+        conn,
+        tenant_code="ASSET-RESOLVER-X",
+        target_host="/opt/application",
+        engine_source="trivy",
+        engine_metadata={
+            "scan_type": "folder",
+            "container_image_digest": (
+                "sha256:"
+                "ffffffffffffffffffffffffffffffff"
+                "ffffffffffffffffffffffffffffffff"
+            ),
+            "container_image_reference": "nginx:1.25",
+        },
+    )
+
+    assert asset_id is None
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM assets
+            WHERE tenant_code = 'ASSET-RESOLVER-X'
+            """
+        )
+
+        assert cur.fetchone()[0] == 0
 
 def main():
     conn = connect()
@@ -664,6 +935,13 @@ def main():
             test_nuclei_non_http_target_remains_unresolved,
             test_nuclei_non_origin_target_remains_unresolved,
             test_nuclei_ip_does_not_determine_application_identity,
+            test_trivy_digest_creates_container_image,
+            test_trivy_same_digest_converges,
+            test_trivy_digest_identity_is_tenant_scoped,
+            test_trivy_same_reference_different_digest_is_distinct,
+            test_trivy_reference_only_remains_unresolved,
+            test_trivy_invalid_digest_remains_unresolved,
+            test_trivy_folder_scan_does_not_resolve_container_image,
         ]
 
         for test in tests:
