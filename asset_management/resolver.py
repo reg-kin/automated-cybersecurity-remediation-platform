@@ -19,6 +19,7 @@ SUPPORTED_ENGINES = {
     "openvas",
     "lynis",
     "nuclei",
+    "trivy",
 }
 
 WEAK_HOST_ENGINES = {
@@ -139,6 +140,87 @@ def _extract_nuclei_application_evidence(
         ],
     }
 
+def _normalise_container_image_digest(value):
+    value = _normalise_text(value)
+
+    if value is None:
+        return None
+
+    prefix = "sha256:"
+
+    if not value.lower().startswith(prefix):
+        return None
+
+    digest = value[len(prefix):]
+
+    if len(digest) != 64:
+        return None
+
+    try:
+        int(digest, 16)
+    except ValueError:
+        return None
+
+    return prefix + digest.lower()
+
+
+def _extract_trivy_container_image_evidence(
+    engine_metadata,
+):
+    metadata = engine_metadata or {}
+
+    if _normalise_text(
+        metadata.get("scan_type")
+    ) != "image":
+        return {
+            "asset_type": "CONTAINER_IMAGE",
+            "canonical_name": None,
+            "identifiers": [],
+        }
+
+    image_digest = _normalise_container_image_digest(
+        metadata.get("container_image_digest")
+    )
+
+    image_reference = _normalise_text(
+        metadata.get("container_image_reference")
+    )
+
+    identifiers = []
+
+    if image_digest:
+        identifiers.append(
+            {
+                "identifier_type": "CONTAINER_IMAGE_DIGEST",
+                "identifier_value": image_digest,
+                "normalized_value": image_digest,
+                "confidence": "VERY_HIGH",
+                "is_authoritative": True,
+            }
+        )
+
+    if image_reference:
+        identifiers.append(
+            {
+                "identifier_type": "CONTAINER_IMAGE_REFERENCE",
+                "identifier_value": image_reference,
+                "normalized_value": image_reference,
+                "confidence": "HIGH",
+                "is_authoritative": False,
+            }
+        )
+
+    canonical_name = (
+        image_reference
+        or image_digest
+    )
+
+    return {
+        "asset_type": "CONTAINER_IMAGE",
+        "canonical_name": canonical_name,
+        "identifiers": identifiers,
+    }
+
 def _extract_wazuh_evidence(
     target_host,
     engine_metadata,
@@ -246,6 +328,11 @@ def _extract_evidence(
             engine_metadata,
         )
 
+    if engine_source == "trivy":
+        return _extract_trivy_container_image_evidence(
+            engine_metadata,
+        )
+
     if engine_source in WEAK_HOST_ENGINES:
         return _extract_weak_host_evidence(
             target_host,
@@ -345,6 +432,56 @@ def _find_application_asset(
     if len(rows) > 1:
         raise RuntimeError(
             "Application identifier resolved to "
+            "multiple active assets"
+        )
+
+    if rows:
+        return rows[0][0]
+
+    return None
+
+def _find_container_image_asset(
+    cur,
+    tenant_code,
+    identifiers,
+):
+    digests = [
+        identifier
+        for identifier in identifiers
+        if identifier["identifier_type"]
+        == "CONTAINER_IMAGE_DIGEST"
+    ]
+
+    if not digests:
+        return None
+
+    identifier = digests[0]
+
+    cur.execute(
+        """
+        SELECT ai.asset_id
+        FROM asset_identifiers AS ai
+        JOIN assets AS a
+          ON a.asset_id = ai.asset_id
+         AND a.tenant_code = ai.tenant_code
+        WHERE ai.tenant_code = %s
+          AND ai.identifier_type = 'CONTAINER_IMAGE_DIGEST'
+          AND ai.normalized_value = %s
+          AND ai.is_active IS TRUE
+          AND a.asset_type = 'CONTAINER_IMAGE'
+          AND a.lifecycle_status = 'ACTIVE'
+        """,
+        (
+            tenant_code,
+            identifier["normalized_value"],
+        ),
+    )
+
+    rows = cur.fetchall()
+
+    if len(rows) > 1:
+        raise RuntimeError(
+            "Container image digest resolved to "
             "multiple active assets"
         )
 
@@ -529,12 +666,21 @@ def _persist_resolution(
     engine_source,
     evidence,
 ):
+
     if evidence["asset_type"] == "APPLICATION":
         asset_id = _find_application_asset(
             cur,
             tenant_code,
             evidence["identifiers"],
         )
+
+    elif evidence["asset_type"] == "CONTAINER_IMAGE":
+        asset_id = _find_container_image_asset(
+            cur,
+            tenant_code,
+            evidence["identifiers"],
+        )
+
     else:
         asset_id = _find_strong_asset(
             cur,
@@ -672,6 +818,76 @@ def resolve_asset(
                     raise
 
                 asset_id = _find_application_asset(
+                    cur,
+                    tenant_code,
+                    evidence["identifiers"],
+                )
+
+                if asset_id is None:
+                    raise
+
+                _touch_asset(
+                    cur,
+                    asset_id,
+                )
+
+                for identifier in evidence["identifiers"]:
+                    _record_identifier(
+                        cur,
+                        asset_id,
+                        tenant_code,
+                        engine_source,
+                        identifier,
+                    )
+
+            finally:
+                cur.execute(
+                    "RELEASE SAVEPOINT asset_resolution"
+                )
+
+        return asset_id
+
+    if engine_source == "trivy":
+        has_image_digest = any(
+            identifier["identifier_type"]
+            == "CONTAINER_IMAGE_DIGEST"
+            for identifier in evidence["identifiers"]
+        )
+
+        if not has_image_digest:
+            return None
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SAVEPOINT asset_resolution"
+            )
+
+            try:
+                asset_id = _persist_resolution(
+                    cur,
+                    tenant_code=tenant_code,
+                    engine_source=engine_source,
+                    evidence=evidence,
+                )
+
+            except errors.UniqueViolation as exc:
+                constraint_name = getattr(
+                    exc.diag,
+                    "constraint_name",
+                    None,
+                )
+
+                cur.execute(
+                    "ROLLBACK TO SAVEPOINT asset_resolution"
+                )
+
+                if (
+                    constraint_name
+                    != STRONG_IDENTIFIER_INDEX
+                ):
+                    raise
+
+                asset_id = _find_container_image_asset(
                     cur,
                     tenant_code,
                     evidence["identifiers"],
