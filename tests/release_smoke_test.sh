@@ -572,9 +572,12 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_asset_context.py \
     || fail "Asset context management regression failed."
 
+python3 tests/test_risk_contextualisation.py \
+    || fail "Risk contextualisation regression failed."
+
 unset PG_PASSWORD
 
-pass "Deterministic asset resolution is correct."
+pass "Deterministic asset and risk contextualisation checks are correct."
 
 # ---------------------------------------------------------------------------
 # 10. Database invariant checks
