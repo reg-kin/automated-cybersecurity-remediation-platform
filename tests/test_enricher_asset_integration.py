@@ -208,6 +208,137 @@ def fetch_asset_count():
     finally:
         conn.close()
 
+def set_test_asset_context(asset_id):
+    conn = psycopg2.connect(**PG)
+
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO asset_context (
+                        asset_id,
+                        tenant_code,
+                        environment,
+                        criticality,
+                        data_classification,
+                        internet_exposure,
+                        confidentiality_requirement,
+                        integrity_requirement,
+                        availability_requirement,
+                        context_source
+                    )
+                    VALUES (
+                        %s,
+                        %s,
+                        'PRODUCTION',
+                        'CRITICAL',
+                        'RESTRICTED',
+                        'INTERNET_FACING',
+                        'CRITICAL',
+                        'CRITICAL',
+                        'CRITICAL',
+                        'INTEGRATION_TEST'
+                    )
+                    ON CONFLICT (asset_id)
+                    DO UPDATE SET
+                        environment = EXCLUDED.environment,
+                        criticality = EXCLUDED.criticality,
+                        data_classification = EXCLUDED.data_classification,
+                        internet_exposure = EXCLUDED.internet_exposure,
+                        confidentiality_requirement =
+                            EXCLUDED.confidentiality_requirement,
+                        integrity_requirement =
+                            EXCLUDED.integrity_requirement,
+                        availability_requirement =
+                            EXCLUDED.availability_requirement,
+                        context_source = EXCLUDED.context_source,
+                        updated_at = now()
+                    """,
+                    (
+                        asset_id,
+                        TENANT,
+                    ),
+                )
+    finally:
+        conn.close()
+
+
+def fetch_risk_assessment(engine_source):
+    conn = psycopg2.connect(**PG)
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    fra.finding_id,
+                    fra.asset_id,
+                    fra.assessment_status,
+                    fra.contextual_risk_score,
+                    fra.contextual_risk_level,
+                    fra.assessment_factors,
+                    fra.context_snapshot,
+                    fra.assessment_model
+                FROM finding_risk_assessments fra
+                JOIN unified_security_findings usf
+                  ON usf.finding_id = fra.finding_id
+                 AND usf.tenant_code = fra.tenant_code
+                WHERE usf.tenant_code = %s
+                  AND usf.engine_source = %s
+                """,
+                (
+                    TENANT,
+                    engine_source,
+                ),
+            )
+
+            row = cur.fetchone()
+
+            if row is None:
+                raise AssertionError(
+                    f"No risk assessment stored for {engine_source}"
+                )
+
+            return {
+                "finding_id": row[0],
+                "asset_id": row[1],
+                "assessment_status": row[2],
+                "contextual_risk_score": row[3],
+                "contextual_risk_level": row[4],
+                "assessment_factors": row[5],
+                "context_snapshot": row[6],
+                "assessment_model": row[7],
+            }
+    finally:
+        conn.close()
+
+
+def fetch_risk_count(engine_source):
+    conn = psycopg2.connect(**PG)
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM finding_risk_assessments fra
+                JOIN unified_security_findings usf
+                  ON usf.finding_id = fra.finding_id
+                 AND usf.tenant_code = fra.tenant_code
+                WHERE usf.tenant_code = %s
+                  AND usf.engine_source = %s
+                """,
+                (
+                    TENANT,
+                    engine_source,
+                ),
+            )
+
+            return cur.fetchone()[0]
+    finally:
+        conn.close()
+
 
 def main():
     worker = load_module(
@@ -271,9 +402,50 @@ def main():
 
             assert sca_asset_id is not None
 
+            initial_sca_risk = fetch_risk_assessment(
+                "wazuh_sca"
+            )
+
+            assert (
+                initial_sca_risk["asset_id"]
+                == sca_asset_id
+            )
+            assert (
+                initial_sca_risk["assessment_status"]
+                == "UNSCORABLE"
+            )
+            assert (
+                initial_sca_risk[
+                    "contextual_risk_score"
+                ]
+                is None
+            )
+            assert (
+                initial_sca_risk[
+                    "contextual_risk_level"
+                ]
+                is None
+            )
+            assert (
+                initial_sca_risk["context_snapshot"]
+                is None
+            )
+            assert (
+                initial_sca_risk["assessment_model"]
+                == "CONTEXTUAL_RISK_V1"
+            )
+            assert (
+                initial_sca_risk["assessment_factors"][
+                    "tenant_service_tier"
+                ]
+                == "STANDARD"
+            )
+            assert fetch_risk_count("wazuh_sca") == 1
+
             print(
                 "PASS: Wazuh SCA finding is persisted "
-                "with a canonical asset_id"
+                "with a canonical asset_id and UNSCORABLE "
+                "contextual risk assessment"
             )
 
             worker.process_ai_enrichment(
@@ -288,6 +460,58 @@ def main():
 
             assert vulnerability_asset_id is not None
 
+            initial_vulnerability_risk = (
+                fetch_risk_assessment(
+                    "wazuh_vulnerability"
+                )
+            )
+
+            assert (
+                initial_vulnerability_risk["asset_id"]
+                == vulnerability_asset_id
+            )
+            assert (
+                initial_vulnerability_risk[
+                    "assessment_status"
+                ]
+                == "PARTIAL"
+            )
+            assert (
+                float(
+                    initial_vulnerability_risk[
+                        "contextual_risk_score"
+                    ]
+                )
+                == 4.86
+            )
+            assert (
+                initial_vulnerability_risk[
+                    "contextual_risk_level"
+                ]
+                == "MEDIUM"
+            )
+            assert (
+                initial_vulnerability_risk[
+                    "context_snapshot"
+                ]
+                is None
+            )
+            assert (
+                initial_vulnerability_risk[
+                    "assessment_factors"
+                ]["tenant_service_tier"]
+                == "STANDARD"
+            )
+            assert (
+                initial_vulnerability_risk[
+                    "assessment_factors"
+                ]["technical_severity_source"]
+                == "severity_score"
+            )
+            assert fetch_risk_count(
+                "wazuh_vulnerability"
+            ) == 1
+
             assert (
                 vulnerability_asset_id
                 == sca_asset_id
@@ -300,26 +524,100 @@ def main():
                 "findings converge on one canonical asset"
             )
 
+            set_test_asset_context(sca_asset_id)
+
             with patch.object(
                 worker,
                 "resolve_asset",
                 return_value=None,
             ):
                 worker.process_ai_enrichment(
-                    sca_finding
+                    vulnerability_finding
                 )
 
             preserved_asset_id = (
                 fetch_finding_asset(
-                    "wazuh_sca"
+                    "wazuh_vulnerability"
                 )
             )
 
             assert preserved_asset_id == sca_asset_id
 
+            contextualised_risk = fetch_risk_assessment(
+                "wazuh_vulnerability"
+            )
+
+            assert (
+                contextualised_risk["asset_id"]
+                == sca_asset_id
+            )
+            assert (
+                contextualised_risk["assessment_status"]
+                == "ASSESSED"
+            )
+            assert (
+                contextualised_risk["context_snapshot"][
+                    "environment"
+                ]
+                == "PRODUCTION"
+            )
+            assert (
+                contextualised_risk["context_snapshot"][
+                    "criticality"
+                ]
+                == "CRITICAL"
+            )
+            assert (
+                contextualised_risk["context_snapshot"][
+                    "data_classification"
+                ]
+                == "RESTRICTED"
+            )
+            assert (
+                contextualised_risk["context_snapshot"][
+                    "internet_exposure"
+                ]
+                == "INTERNET_FACING"
+            )
+            assert (
+                contextualised_risk["context_snapshot"][
+                    "context_source"
+                ]
+                == "INTEGRATION_TEST"
+            )
+            assert (
+                contextualised_risk["assessment_factors"][
+                    "tenant_service_tier"
+                ]
+                == "STANDARD"
+            )
+
+            expected_contextual_score = min(
+                float(
+                    initial_vulnerability_risk[
+                        "contextual_risk_score"
+                    ]
+                ) + 4.0,
+                10.0,
+            )
+
+            assert (
+                float(
+                    contextualised_risk[
+                        "contextual_risk_score"
+                    ]
+                )
+                == expected_contextual_score
+            )
+
+            assert fetch_risk_count(
+                "wazuh_vulnerability"
+            ) == 1
+
             print(
                 "PASS: unresolved re-ingestion preserves "
-                "the existing finding asset_id"
+                "the existing finding asset_id and uses "
+                "that persisted asset for contextual risk"
             )
 
     finally:
