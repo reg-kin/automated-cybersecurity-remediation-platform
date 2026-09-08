@@ -107,6 +107,20 @@ def test_os_package_vulnerability_normalization() -> None:
     assert metadata["scan_target"] == "nginx:1.25"
 
     assert (
+        metadata["container_image_digest"]
+        == (
+            "sha256:"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+    )
+
+    assert (
+        metadata["container_image_reference"]
+        == "nginx:1.25"
+    )
+
+    assert (
         metadata["result_target"]
         == "nginx:1.25 (debian 12)"
     )
@@ -126,17 +140,83 @@ def test_os_package_vulnerability_normalization() -> None:
 
     assert payload["ai_analysis"] is None
 
+def test_image_without_digest_remains_without_strong_identity() -> None:
+    trivy = import_trivy_orchestrator()
+
+    report = load_fixture(
+        "os_package_vulnerability.json"
+    )
+
+    report["Metadata"].pop(
+        "ImageID",
+        None,
+    )
+
+    findings = trivy.normalize_report(
+        report=report,
+        tenant_code="TEST-TENANT",
+        service_tier="STANDARD",
+        scan_type="image",
+        original_target="nginx:1.25",
+        enabled_scanners={"vuln"},
+    )
+
+    assert len(findings) == 1
+
+    metadata = findings[0]["engine_metadata"]
+
+    assert (
+        "container_image_digest"
+        not in metadata
+    )
+
+    assert (
+        metadata["container_image_reference"]
+        == "nginx:1.25"
+    )
+
+
+def test_folder_scan_never_gets_container_image_identity() -> None:
+    trivy = import_trivy_orchestrator()
+
+    report = load_fixture(
+        "os_package_vulnerability.json"
+    )
+
+    findings = trivy.normalize_report(
+        report=report,
+        tenant_code="TEST-TENANT",
+        service_tier="STANDARD",
+        scan_type="folder",
+        original_target="/opt/application",
+        enabled_scanners={"vuln"},
+    )
+
+    assert len(findings) == 1
+
+    metadata = findings[0]["engine_metadata"]
+
+    assert (
+        "container_image_digest"
+        not in metadata
+    )
+
+    assert (
+        "container_image_reference"
+        not in metadata
+    )
 
 def main() -> int:
     test_os_package_vulnerability_normalization()
+    test_image_without_digest_remains_without_strong_identity()
+    test_folder_scan_never_gets_container_image_identity()
 
     print(
-        "PASS: Trivy OS package vulnerability normalises "
-        "to the expected Unified Security Finding"
+        "PASS: Trivy normalisation preserves container-image "
+        "identity boundaries"
     )
 
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

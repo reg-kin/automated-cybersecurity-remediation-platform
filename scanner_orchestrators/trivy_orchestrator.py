@@ -1816,6 +1816,60 @@ def normalize_report(
 
     detected_at = utc_now()
 
+    image_identity: Dict[str, str] = {}
+
+    if scan_type == "image":
+
+        report_metadata = report.get(
+            "Metadata"
+        )
+
+        if isinstance(
+            report_metadata,
+            dict,
+        ):
+
+            image_digest = clean_string(
+                report_metadata.get(
+                    "ImageID"
+                )
+            )
+
+            image_reference = clean_string(
+                report_metadata.get(
+                    "Reference"
+                )
+            )
+
+            if image_digest:
+
+                image_identity[
+                    "container_image_digest"
+                ] = image_digest
+
+            if image_reference:
+
+                image_identity[
+                    "container_image_reference"
+                ] = image_reference
+
+        if (
+            "container_image_reference"
+            not in image_identity
+        ):
+
+            artifact_name = clean_string(
+                report.get(
+                    "ArtifactName"
+                )
+            )
+
+            if artifact_name:
+
+                image_identity[
+                    "container_image_reference"
+                ] = artifact_name
+
     results = (
         report.get(
             "Results"
@@ -1878,6 +1932,12 @@ def normalize_report(
                         detected_at,
                     )
 
+                    payload[
+                        "engine_metadata"
+                    ].update(
+                        image_identity
+                    )
+
                     add_if_unique(
                         payload,
                         findings,
@@ -1919,6 +1979,12 @@ def normalize_report(
                         result,
                         item,
                         detected_at,
+                    )
+
+                    payload[
+                        "engine_metadata"
+                    ].update(
+                        image_identity
                     )
 
                     add_if_unique(
@@ -1964,6 +2030,12 @@ def normalize_report(
                         detected_at,
                     )
 
+                    payload[
+                        "engine_metadata"
+                    ].update(
+                        image_identity
+                    )
+
                     add_if_unique(
                         payload,
                         findings,
@@ -1992,6 +2064,12 @@ def normalize_report(
                     package_name,
                     item,
                     detected_at,
+                )
+
+                payload[
+                    "engine_metadata"
+                ].update(
+                    image_identity
                 )
 
                 add_if_unique(
