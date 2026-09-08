@@ -563,6 +563,14 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_enricher_asset_integration.py \
     || fail "Enricher asset integration regression failed."
 
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${PG_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_asset_context.py \
+    || fail "Asset context management regression failed."
+
 unset PG_PASSWORD
 
 pass "Deterministic asset resolution is correct."
