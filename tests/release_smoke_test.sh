@@ -580,6 +580,14 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_risk_persistence.py \
     || fail "Risk persistence regression failed."
 
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${PG_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_risk_reassessment.py \
+    || fail "Risk reassessment regression failed."
+
 python3 tests/test_risk_contextualisation.py \
     || fail "Risk contextualisation regression failed."
 
