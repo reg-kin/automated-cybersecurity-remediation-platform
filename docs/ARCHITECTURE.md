@@ -67,7 +67,7 @@ open_remediation_queue
 prioritised_remediation_queue
         |
         v
-n8n / remediation orchestration
+Python remediation dispatcher
         |
         v
 controller / approval
@@ -99,3 +99,24 @@ rules and is not used as finding priority.
 Contextual risk does not alter capability, playbook, remediation action,
 automation tier, approval requirements, controller behaviour, or
 two-stage verification.
+
+## Remediation Workflow Orchestration
+
+Remediation Workflow Orchestration V1 consumes the already-routed,
+risk-prioritised findings exposed by `prioritised_remediation_queue`.
+
+Each dispatcher invocation selects at most one finding using the authoritative prioritisation order and `LIMIT 1`.
+
+The Python dispatcher builds the existing controller request from persisted finding and remediation-rule data. Execution parameters are rendered deterministically from `parameter_template` and `engine_metadata`.
+
+The dispatcher does not perform remediation routing, approval decisions, execution-state transitions, or verification.
+
+Delivery follows an at-least-once model. Duplicate or concurrent delivery safety remains authoritative in the controller/database layer.
+
+The controller claims the finding and creates the execution inside its existing transaction boundary. PostgreSQL enforces at most one active remediation execution per finding through `uq_one_active_execution_per_finding`.
+
+No separate dispatcher lease table, claim table, distributed lock, `DISPATCHED` lifecycle state, or second execution state machine is used in V1.
+
+Approval-gated remediation continues through the existing `AWAITING_APPROVAL` controller state. The dispatcher cannot approve or bypass an approval requirement.
+
+The complete V1 contract is documented in `docs/REMEDIATION_WORKFLOW_ORCHESTRATION.md`.

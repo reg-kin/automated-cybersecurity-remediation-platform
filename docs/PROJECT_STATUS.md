@@ -71,9 +71,23 @@ usable contextual risk first
 -> lower finding_id
 ```
 
-This capability does not yet implement automatic dispatch, SLA policy,
-service-tier prioritisation, threat-intelligence weighting, or
-risk-driven approval policy.
+Remediation Workflow Orchestration V1 is now implemented at the application-contract and regression-test level.
+
+The platform can deterministically select the next eligible item from `prioritised_remediation_queue`, construct the existing controller payload, render remediation parameters safely, and rely on the existing controller/database boundary to prevent duplicate active executions.
+
+The production Python remediation dispatcher is implemented and regression-tested. n8n is reserved for optional integration and notification workflows.
+
+SLA policy, service-tier prioritisation, threat-intelligence weighting, risk-driven approval policy, batch dispatch, and parallel dispatch also remain outside V1.
+
+## Remediation Workflow Orchestration
+
+Remediation Workflow Orchestration V1 has been regression-tested against the disposable PostgreSQL release-test database.
+
+Current tests verify deterministic next-item selection, controller payload construction, safe parameter rendering, queue removal after claim, duplicate-delivery rejection, and exactly one active remediation execution per finding.
+
+The database and controller remain the authoritative concurrency and execution-state boundary. No separate dispatcher locking, claim table, or lease mechanism is used.
+
+The production Python remediation dispatcher is the core V1 remediation-delivery component. n8n is not required for core remediation execution and remains optional for integrations, notifications, and report distribution.
 
 ## Verification
 
@@ -100,5 +114,5 @@ Remaining work before a production v1.0 release includes:
 - SSH deployment hardening;
 - container privilege review;
 - operational monitoring and alerting;
-- n8n workflow validation;
+- Python remediation dispatcher deployment validation;
 - formal installation and upgrade testing.
