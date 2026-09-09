@@ -48,6 +48,33 @@ The presence of a remediation capability does not imply that every scanner
 integration feeding that capability has already been implemented or
 production-tested.
 
+## Risk Contextualisation and Remediation Prioritisation
+
+Deterministic Risk Contextualisation V1 is implemented.
+
+The platform persists one current contextual risk assessment per finding
+using the `CONTEXTUAL_RISK_V1` model and supports `ASSESSED`, `PARTIAL`,
+and `UNSCORABLE` states.
+
+Risk-Aware Remediation Prioritisation V1 is also implemented.
+
+The platform exposes `prioritised_remediation_queue`, which orders
+already-routed remediation findings using current contextual risk while
+preserving deterministic remediation-rule selection.
+
+Implemented ordering is:
+
+```text
+usable contextual risk first
+-> higher contextual risk score
+-> older detected_at
+-> lower finding_id
+```
+
+This capability does not yet implement automatic dispatch, SLA policy,
+service-tier prioritisation, threat-intelligence weighting, or
+risk-driven approval policy.
+
 ## Verification
 
 Two-stage remediation verification is supported.

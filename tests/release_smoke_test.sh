@@ -40,6 +40,7 @@ SQL_FILES=(
     "database/migrations/008_application_asset_identity.sql"
     "database/migrations/009_risk_contextualisation.sql"
     "database/010_harden_remediation_routing.sql"
+    "database/migrations/011_risk_aware_remediation_prioritisation.sql"
 )
 
 cleanup() {
@@ -588,6 +589,14 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_risk_reassessment.py \
     || fail "Risk reassessment regression failed."
 
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${PG_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_risk_aware_remediation_prioritisation.py \
+    || fail "Risk-aware remediation prioritisation regression failed."
+
 python3 tests/test_risk_contextualisation.py \
     || fail "Risk contextualisation regression failed."
 
@@ -746,6 +755,20 @@ application_identifier_index_count="$(
         WHERE schemaname = 'public'
           AND tablename = 'asset_identifiers'
           AND indexname = 'uq_asset_identifiers_application_active';
+        "
+)"
+
+prioritised_queue_view_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.views
+        WHERE table_schema = 'public'
+          AND table_name = 'prioritised_remediation_queue';
         "
 )"
 
@@ -1355,6 +1378,9 @@ risk_assessment_constraint_count="$(
         "
 )"
 
+[[ "${prioritised_queue_view_count}" == "1" ]] \
+    || fail "prioritised_remediation_queue view is missing."
+
 [[ "${risk_assessment_table_count}" == "1" ]] \
     || fail "finding_risk_assessments table is missing."
 
@@ -1397,6 +1423,7 @@ risk_assessment_constraint_count="$(
 echo "  finding_classes: ${finding_class_count}"
 echo "  generic_rules:   ${generic_rule_count}"
 echo "  total_rules:     ${rule_count}"
+echo "  priority_view:   ${prioritised_queue_view_count}"
 echo "  risk_table:      ${risk_assessment_table_count}"
 echo "  risk_finding_fk: ${risk_assessment_finding_fk_count}"
 echo "  risk_asset_fk:   ${risk_assessment_asset_fk_count}"
