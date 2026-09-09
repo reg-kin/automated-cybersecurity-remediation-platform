@@ -86,6 +86,9 @@ REQUIRED_FILES=(
     "LICENSE"
     "SECURITY.md"
     "CONTRIBUTING.md"
+    "docs/ARCHITECTURE.md"
+    "docs/PROJECT_STATUS.md"
+    "docs/REMEDIATION_WORKFLOW_ORCHESTRATION.md"
     "schema/unified_security_finding.schema.json"
     "scanner_orchestrators/finding_class_mapping.json"
     "tests/check_catalogue.py"
@@ -596,6 +599,18 @@ PG_USER="${PG_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_risk_aware_remediation_prioritisation.py \
     || fail "Risk-aware remediation prioritisation regression failed."
+
+python3 tests/test_controller_api_error_codes.py || fail "Controller API error-code regression failed."
+
+python3 tests/test_remediation_dispatcher.py || fail "Remediation dispatcher regression failed."
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${PG_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_remediation_workflow_orchestration.py \
+    || fail "Remediation workflow orchestration regression failed."
 
 python3 tests/test_risk_contextualisation.py \
     || fail "Risk contextualisation regression failed."

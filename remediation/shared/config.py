@@ -3,6 +3,8 @@ import os
 def env(name,default=None): return os.getenv(name,default)
 PG={'host':env('PG_HOST','127.0.0.1'),'port':int(env('PG_PORT','5432')),'dbname':env('PG_DBNAME','security_portal'),'user':env('PG_USER','telemetry_admin'),'password':env('PG_PASSWORD','')}
 CONTROLLER_TOKEN=env('CONTROLLER_TOKEN','')
+CONTROLLER_REMEDIATE_URL=env('CONTROLLER_REMEDIATE_URL','http://127.0.0.1:9000/remediate')
+CONTROLLER_REQUEST_TIMEOUT=int(env('CONTROLLER_REQUEST_TIMEOUT','2700'))
 ANSIBLE_RUNNER_URL=env('ANSIBLE_RUNNER_URL','http://127.0.0.1:8081/run')
 ANSIBLE_RUNNER_TOKEN=env('ANSIBLE_RUNNER_TOKEN','')
 ANSIBLE_RUNNER_TIMEOUT=int(env('ANSIBLE_RUNNER_TIMEOUT','600'))

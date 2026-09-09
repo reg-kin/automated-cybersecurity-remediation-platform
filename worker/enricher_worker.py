@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Canonical Ollama enrichment worker. Ollama enriches risk only; routing is deterministic DB/n8n.
+# Canonical Ollama enrichment worker. Ollama enriches risk only; routing is deterministic and database-driven.
 
 import json, logging, os, sys, urllib.request
 from datetime import datetime, timezone
@@ -26,7 +26,7 @@ CATEGORIES={'vulnerability','compliance_drift','integrity_drift','rootkit'}
 SEVERITIES={'CRITICAL','HIGH','MEDIUM','LOW'}
 LIFECYCLE={'OPEN','IN_REMEDIATION','RESOLVED','FALSE_POSITIVE'}
 COMPLIANCE={'PASS','FAIL','NOT_APPLICABLE'}
-SYSTEM_PROMPT=("You are the risk-enrichment component of an automated cybersecurity remediation platform. Your ONLY job is to enrich the supplied security finding with concise risk context. Do NOT select or recommend an Ansible role, playbook, remediation action, automation tier, approval requirement, remediation capability, or execution parameters. Those decisions are made deterministically by PostgreSQL remediation_rules and n8n. Do not invent technical facts. Return JSON only with exactly: risk_summary, business_context_impact, confidence_score. confidence_score must be between 0 and 1.")
+SYSTEM_PROMPT=("You are the risk-enrichment component of an automated cybersecurity remediation platform. Your ONLY job is to enrich the supplied security finding with concise risk context. Do NOT select or recommend an Ansible role, playbook, remediation action, automation tier, approval requirement, remediation capability, or execution parameters. Those decisions are made deterministically from persisted PostgreSQL remediation_rules and the remediation controller. Do not invent technical facts. Return JSON only with exactly: risk_summary, business_context_impact, confidence_score. confidence_score must be between 0 and 1.")
 FALLBACK={'risk_summary':'Security finding requires deterministic remediation-rule evaluation.','business_context_impact':'Potential security exposure or control weakness on the target asset.','confidence_score':0.0}
 logger=logging.getLogger('automated_remediation.enricher'); pool=None
 

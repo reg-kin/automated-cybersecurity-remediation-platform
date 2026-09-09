@@ -147,6 +147,7 @@ def remediate():
             {
                 "success": False,
                 "error": str(exc),
+                "code": "ACTIVE_REMEDIATION_EXISTS",
             }
         ), 409
 
@@ -173,6 +174,7 @@ def remediate():
             {
                 "success": False,
                 "error": str(exc),
+                "code": "REMEDIATION_STATE_CONFLICT",
             }
         ), 409
 
