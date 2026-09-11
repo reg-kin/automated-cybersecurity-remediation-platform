@@ -726,6 +726,14 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_administrative_readiness_management.py \
     || fail "Administrative readiness management regression failed."
 
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_readiness_admin_api.py \
+    || fail "Readiness administrative API regression failed."
+
 python3 tests/test_remediation_dispatcher.py \
     || fail "Remediation dispatcher regression failed."
 

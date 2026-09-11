@@ -10,6 +10,7 @@ SERVICE_FILES = (
     "ollama-wazuh-enricher.service",
     "deferred-reconciler.service",
     "remediation-controller.service",
+    "readiness-admin-api.service",
 )
 
 EXPECTED_USER = "automated-remediation"

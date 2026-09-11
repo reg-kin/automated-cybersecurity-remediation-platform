@@ -18,9 +18,25 @@ invariants established by migration 016_asset_remediation_readiness.sql.
 from psycopg2.extras import Json
 
 
+class ReadinessError(ValueError):
+    """Base exception for expected readiness-management failures."""
+
+
+class ReadinessValidationError(ReadinessError):
+    """Request data is invalid."""
+
+
+class AssetNotFoundError(ReadinessError):
+    """The tenant-scoped asset does not exist."""
+
+
+class ReadinessConflictError(ReadinessError):
+    """The requested transition conflicts with current readiness state."""
+
+
 def _require_nonblank(value, field_name):
     if value is None or not str(value).strip():
-        raise ValueError(f"{field_name} must be non-blank")
+        raise ReadinessValidationError(f"{field_name} must be non-blank")
 
     return str(value).strip()
 
@@ -54,7 +70,7 @@ def _get_asset_for_update(conn, *, asset_id, tenant_code):
         row = cur.fetchone()
 
     if row is None:
-        raise ValueError(
+        raise AssetNotFoundError(
             f"Asset {asset_id} does not exist for tenant {tenant_code}"
         )
 
@@ -100,7 +116,7 @@ def _get_asset(conn, *, asset_id, tenant_code):
         row = cur.fetchone()
 
     if row is None:
-        raise ValueError(
+        raise AssetNotFoundError(
             f"Asset {asset_id} does not exist for tenant {tenant_code}"
         )
 
@@ -240,7 +256,7 @@ def _insert_audit(
     metadata = {} if event_metadata is None else event_metadata
 
     if not isinstance(metadata, dict):
-        raise ValueError("event_metadata must be a dictionary")
+        raise ReadinessValidationError("event_metadata must be a dictionary")
 
     with conn.cursor() as cur:
         cur.execute(
@@ -314,7 +330,7 @@ def authorise_asset_management(
     )
 
     if asset["lifecycle_status"] != "ACTIVE":
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} must be ACTIVE before management "
             "can be authorised"
         )
@@ -324,7 +340,7 @@ def authorise_asset_management(
         and asset["management_authorised_at"] is not None
         and asset["management_revoked_at"] is None
     ):
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} is already authorised as MANAGED"
         )
 
@@ -411,7 +427,7 @@ def revoke_asset_management(
         or asset["management_authorised_at"] is None
         or asset["management_revoked_at"] is not None
     ):
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} does not have current management "
             "authorisation"
         )
@@ -429,7 +445,7 @@ def revoke_asset_management(
     ]
 
     if active_targets:
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} still has an active execution target; "
             "revoke the execution target before revoking asset management"
         )
@@ -520,13 +536,13 @@ def authorise_execution_target(
     )
 
     if asset["inventory_state"] != "MANAGED":
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} must be MANAGED before an execution "
             "target can be authorised"
         )
 
     if asset["lifecycle_status"] != "ACTIVE":
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} must be ACTIVE before an execution "
             "target can be authorised"
         )
@@ -535,7 +551,7 @@ def authorise_execution_target(
         asset["management_authorised_at"] is None
         or asset["management_revoked_at"] is not None
     ):
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} does not have current management "
             "authorisation"
         )
@@ -553,7 +569,7 @@ def authorise_execution_target(
     ]
 
     if active_targets:
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} already has an active execution target"
         )
 
@@ -702,7 +718,7 @@ def revoke_execution_target(
     ]
 
     if len(active_targets) != 1:
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} must have exactly one active execution "
             "target to revoke"
         )
@@ -795,13 +811,13 @@ def replace_execution_target(
     )
 
     if asset["inventory_state"] != "MANAGED":
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} must be MANAGED before its execution "
             "target can be replaced"
         )
 
     if asset["lifecycle_status"] != "ACTIVE":
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} must be ACTIVE before its execution "
             "target can be replaced"
         )
@@ -810,7 +826,7 @@ def replace_execution_target(
         asset["management_authorised_at"] is None
         or asset["management_revoked_at"] is not None
     ):
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} does not have current management "
             "authorisation"
         )
@@ -828,7 +844,7 @@ def replace_execution_target(
     ]
 
     if len(active_targets) != 1:
-        raise ValueError(
+        raise ReadinessConflictError(
             f"Asset {asset_id} must have exactly one active execution "
             "target before replacement"
         )
@@ -836,7 +852,7 @@ def replace_execution_target(
     previous = active_targets[0]
 
     if previous["execution_target"] == execution_target:
-        raise ValueError(
+        raise ReadinessConflictError(
             "Replacement execution target must differ from the "
             "currently active target"
         )
