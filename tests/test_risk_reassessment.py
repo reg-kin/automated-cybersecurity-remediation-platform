@@ -76,14 +76,20 @@ def create_asset(
                 asset_type,
                 canonical_name,
                 inventory_state,
-                lifecycle_status
+                lifecycle_status,
+                management_authorised_at,
+                management_authorised_by,
+                management_authorisation_reason
             )
             VALUES (
                 %s,
                 'HOST',
                 %s,
                 'MANAGED',
-                'ACTIVE'
+                'ACTIVE',
+                now(),
+                'risk_reassessment_test',
+                'Authorised for risk reassessment regression testing'
             )
             RETURNING asset_id
             """,

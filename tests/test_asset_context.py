@@ -76,14 +76,20 @@ def create_asset(
                 asset_type,
                 canonical_name,
                 inventory_state,
-                lifecycle_status
+                lifecycle_status,
+                management_authorised_at,
+                management_authorised_by,
+                management_authorisation_reason
             )
             VALUES (
                 %s,
                 'HOST',
                 %s,
                 'MANAGED',
-                %s
+                %s,
+                now(),
+                'asset_context_test',
+                'Authorised for asset context regression testing'
             )
             RETURNING asset_id
             """,
@@ -95,7 +101,6 @@ def create_asset(
         )
 
         return cur.fetchone()[0]
-
 
 def test_create_context_for_existing_asset(conn):
     asset_id = create_asset(
