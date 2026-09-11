@@ -45,6 +45,7 @@ SQL_FILES=(
     "database/migrations/013_restore_remediation_attempt_trigger.sql"
     "database/migrations/014_remediation_retry_cooldown.sql"
     "database/migrations/015_remediation_execution_targets.sql"
+    "database/migrations/016_asset_remediation_readiness.sql"
 )
 
 cleanup() {
@@ -673,6 +674,14 @@ PG_USER="${PG_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_remediation_target_safety.py \
     || fail "Remediation target-safety regression failed."
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${PG_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_asset_remediation_readiness.py \
+    || fail "Asset remediation readiness regression failed."
 
 python3 tests/test_remediation_dispatcher.py \
     || fail "Remediation dispatcher regression failed."

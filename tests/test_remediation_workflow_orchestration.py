@@ -66,14 +66,20 @@ def create_managed_asset(conn):
                 asset_type,
                 canonical_name,
                 inventory_state,
-                lifecycle_status
+                lifecycle_status,
+                management_authorised_at,
+                management_authorised_by,
+                management_authorisation_reason
             )
             VALUES (
                 %s,
                 'HOST',
                 'workflow-orchestration-host',
                 'MANAGED',
-                'ACTIVE'
+                'ACTIVE',
+                now(),
+                'workflow_orchestration_test',
+                'Authorised for remediation workflow orchestration testing'
             )
             RETURNING asset_id
             """,
@@ -89,14 +95,20 @@ def create_managed_asset(conn):
                 tenant_code,
                 execution_target,
                 is_active,
-                source
+                source,
+                authorised_at,
+                authorised_by,
+                authorisation_reason
             )
             VALUES (
                 %s,
                 %s,
                 '192.0.2.220',
                 TRUE,
-                'workflow_orchestration_test'
+                'workflow_orchestration_test',
+                now(),
+                'workflow_orchestration_test',
+                'Authorised for remediation workflow orchestration testing'
             )
             """,
             (asset_id, TENANT),

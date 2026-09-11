@@ -60,7 +60,6 @@ def clean_database(conn):
             (TENANT,),
         )
 
-
 def create_asset(
     conn,
     *,
@@ -69,34 +68,66 @@ def create_asset(
     canonical_name,
 ):
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO assets (
-                tenant_code,
-                asset_type,
-                canonical_name,
-                inventory_state,
-                lifecycle_status
+        if inventory_state == "MANAGED":
+            cur.execute(
+                """
+                INSERT INTO assets (
+                    tenant_code,
+                    asset_type,
+                    canonical_name,
+                    inventory_state,
+                    lifecycle_status,
+                    management_authorised_at,
+                    management_authorised_by,
+                    management_authorisation_reason
+                )
+                VALUES (
+                    %s,
+                    'HOST',
+                    %s,
+                    %s,
+                    %s,
+                    now(),
+                    'target_safety_test',
+                    'Authorised for remediation target-safety testing'
+                )
+                RETURNING asset_id
+                """,
+                (
+                    TENANT,
+                    canonical_name,
+                    inventory_state,
+                    lifecycle_status,
+                ),
             )
-            VALUES (
-                %s,
-                'HOST',
-                %s,
-                %s,
-                %s
+        else:
+            cur.execute(
+                """
+                INSERT INTO assets (
+                    tenant_code,
+                    asset_type,
+                    canonical_name,
+                    inventory_state,
+                    lifecycle_status
+                )
+                VALUES (
+                    %s,
+                    'HOST',
+                    %s,
+                    %s,
+                    %s
+                )
+                RETURNING asset_id
+                """,
+                (
+                    TENANT,
+                    canonical_name,
+                    inventory_state,
+                    lifecycle_status,
+                ),
             )
-            RETURNING asset_id
-            """,
-            (
-                TENANT,
-                canonical_name,
-                inventory_state,
-                lifecycle_status,
-            ),
-        )
 
         return cur.fetchone()[0]
-
 
 def add_execution_target(
     conn,
@@ -106,31 +137,60 @@ def add_execution_target(
     is_active=True,
 ):
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO asset_execution_targets (
-                asset_id,
-                tenant_code,
-                execution_target,
-                is_active,
-                source
+        if is_active:
+            cur.execute(
+                """
+                INSERT INTO asset_execution_targets (
+                    asset_id,
+                    tenant_code,
+                    execution_target,
+                    is_active,
+                    source,
+                    authorised_at,
+                    authorised_by,
+                    authorisation_reason
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    %s,
+                    TRUE,
+                    'target_safety_test',
+                    now(),
+                    'target_safety_test',
+                    'Authorised for remediation target-safety testing'
+                )
+                """,
+                (
+                    asset_id,
+                    TENANT,
+                    execution_target,
+                ),
             )
-            VALUES (
-                %s,
-                %s,
-                %s,
-                %s,
-                'target_safety_test'
+        else:
+            cur.execute(
+                """
+                INSERT INTO asset_execution_targets (
+                    asset_id,
+                    tenant_code,
+                    execution_target,
+                    is_active,
+                    source
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    %s,
+                    FALSE,
+                    'target_safety_test'
+                )
+                """,
+                (
+                    asset_id,
+                    TENANT,
+                    execution_target,
+                ),
             )
-            """,
-            (
-                asset_id,
-                TENANT,
-                execution_target,
-                is_active,
-            ),
-        )
-
 
 def create_finding(
     conn,
@@ -214,7 +274,8 @@ def main():
             clean_database(conn)
 
         #
-        # PROVISIONAL assets must never be executable.
+        # PROVISIONAL assets must never be permitted to receive an
+        # active authorised execution target.
         #
         with conn:
             provisional_asset = create_asset(
@@ -224,12 +285,6 @@ def main():
                 canonical_name="provisional-host",
             )
 
-            add_execution_target(
-                conn,
-                asset_id=provisional_asset,
-                execution_target="192.0.2.10",
-            )
-
             provisional_finding = create_finding(
                 conn,
                 asset_id=provisional_asset,
@@ -237,14 +292,28 @@ def main():
                 target_host="scanner-provisional-host",
             )
 
+        provisional_target_blocked = False
+
+        try:
+            with conn:
+                add_execution_target(
+                    conn,
+                    asset_id=provisional_asset,
+                    execution_target="192.0.2.10",
+                )
+        except errors.RaiseException:
+            provisional_target_blocked = True
+
+        assert provisional_target_blocked is True
+
         assert eligible_count(
             conn,
             provisional_finding,
         ) == 0
 
         print(
-            "PASS: PROVISIONAL asset is excluded from "
-            "eligible remediation"
+            "PASS: PROVISIONAL asset cannot receive an authorised "
+            "execution target and remains ineligible"
         )
 
         #
