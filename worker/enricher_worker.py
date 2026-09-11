@@ -605,6 +605,7 @@ def process_ai_enrichment(payload):
           recurrence_count=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN unified_security_findings.recurrence_count+1 ELSE unified_security_findings.recurrence_count END,
           last_reopened_at=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN now() ELSE unified_security_findings.last_reopened_at END,
           remediated_at=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN NULL ELSE unified_security_findings.remediated_at END,
+          next_remediation_attempt_at=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN NULL ELSE unified_security_findings.next_remediation_attempt_at END,
           last_error=CASE WHEN unified_security_findings.lifecycle_status='RESOLVED' AND unified_security_findings.remediated_at IS NOT NULL AND EXCLUDED.detected_at > unified_security_findings.remediated_at+(%s*INTERVAL '1 second') THEN 'Previously resolved finding detected again by scanner' ELSE unified_security_findings.last_error END,
           updated_at=now()
         RETURNING finding_id,lifecycle_status,recurrence_count,last_reopened_at,asset_id'''
@@ -617,7 +618,7 @@ def process_ai_enrichment(payload):
                 engine_metadata=f['engine_metadata'],
             )
 
-            vals=(f['tenant_code'],f['tenant_service_tier'],f['target_host'],f['engine_source'],f['finding_category'],f['finding_class'],f['finding_key'],f['finding_title'],f['lifecycle_status'],f['detected_at'],f['detected_at'],f.get('remediated_at'),f.get('last_verified_at'),f.get('compliance_result'),f['severity_level'],f['severity_score'],Json(f['engine_metadata']),Json(ai),asset_id,grace,grace,grace,grace,grace)
+            vals=(f['tenant_code'],f['tenant_service_tier'],f['target_host'],f['engine_source'],f['finding_category'],f['finding_class'],f['finding_key'],f['finding_title'],f['lifecycle_status'],f['detected_at'],f['detected_at'],f.get('remediated_at'),f.get('last_verified_at'),f.get('compliance_result'),f['severity_level'],f['severity_score'],Json(f['engine_metadata']),Json(ai),asset_id,grace,grace,grace,grace,grace,grace)
 
             with conn.cursor() as cur: cur.execute(sql,vals); row=cur.fetchone()
 

@@ -64,32 +64,24 @@ def main():
     )
 
     #
-    # Wazuh-decoded scanner payloads are carried in "data".
-    # Fall back to full_log or the complete alert when necessary.
+    # Wazuh-decoded data coerces JSON scalar values to strings.
+    # Prefer full_log when it preserves the original canonical JSON.
     #
-    payload = (
-        data_field
-        if data_field
-        else full_log
-    )
+    payload = None
 
-    if not payload:
-        payload = alert_data
-
-    #
-    # full_log may occasionally remain a JSON string rather than a
-    # decoded object. Parse it when possible so event_type routing
-    # remains deterministic.
-    #
-    if isinstance(payload, str):
+    if isinstance(full_log, dict) and full_log:
+        payload = full_log
+    elif isinstance(full_log, str) and full_log.strip():
         try:
-            decoded = json.loads(payload)
-
-            if isinstance(decoded, dict):
-                payload = decoded
-
+            decoded = json.loads(full_log)
         except json.JSONDecodeError:
-            pass
+            decoded = None
+
+        if isinstance(decoded, dict):
+            payload = decoded
+
+    if payload is None:
+        payload = data_field if data_field else alert_data
 
     event_type = ""
 

@@ -122,6 +122,81 @@ def get_remediation_rule(conn, rule_id):
             "enabled": row[9],
         }
 
+def get_authorised_execution_target(
+    conn,
+    finding_id,
+):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                a.asset_id,
+                a.tenant_code,
+                a.inventory_state,
+                a.lifecycle_status
+            FROM unified_security_findings f
+            JOIN assets a
+              ON a.asset_id = f.asset_id
+             AND a.tenant_code = f.tenant_code
+            WHERE f.finding_id = %s
+            FOR UPDATE OF a
+            """,
+            (finding_id,)
+        )
+
+        asset = cur.fetchone()
+
+        if asset is None:
+            raise ValueError(
+                f"Finding {finding_id} does not resolve "
+                "to a canonical asset"
+            )
+
+        asset_id = asset[0]
+        tenant_code = asset[1]
+        inventory_state = asset[2]
+        lifecycle_status = asset[3]
+
+        if inventory_state != "MANAGED":
+            raise ValueError(
+                f"Asset {asset_id} is not MANAGED"
+            )
+
+        if lifecycle_status != "ACTIVE":
+            raise ValueError(
+                f"Asset {asset_id} is not ACTIVE"
+            )
+
+        cur.execute(
+            """
+            SELECT execution_target
+            FROM asset_execution_targets
+            WHERE asset_id = %s
+              AND tenant_code = %s
+              AND is_active IS TRUE
+            FOR UPDATE
+            """,
+            (asset_id, tenant_code)
+        )
+
+        rows = cur.fetchall()
+
+        if len(rows) != 1:
+            raise ValueError(
+                f"Asset {asset_id} must have exactly one "
+                "active authorised execution target"
+            )
+
+        execution_target = rows[0][0]
+
+        if not str(execution_target).strip():
+            raise ValueError(
+                f"Asset {asset_id} has an invalid "
+                "authorised execution target"
+            )
+
+        return execution_target
+
 def ensure_claimed(conn, finding_id):
     with conn.cursor() as cur:
         cur.execute(
@@ -584,6 +659,8 @@ def cancel_awaiting_approval(
 
         #
         # Return the finding to the remediation queue.
+        # Approval cancellation is not a remediation failure,
+        # so any retry cooldown must be cleared.
         # Do not alter remediation_attempts,
         # recurrence_count, last_error, remediated_at,
         # or verification timestamps.
@@ -591,7 +668,9 @@ def cancel_awaiting_approval(
         cur.execute(
             """
             UPDATE unified_security_findings
-            SET lifecycle_status = 'OPEN'
+            SET
+                lifecycle_status = 'OPEN',
+                next_remediation_attempt_at = NULL
             WHERE finding_id = %s
               AND lifecycle_status = 'IN_REMEDIATION'
             """,

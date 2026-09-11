@@ -21,7 +21,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PG_CONTAINER="${PG_CONTAINER:-portal-datastore}"
 PG_USER="${PG_USER:-telemetry_admin}"
-TEST_DB="${TEST_DB:-regis_release_smoke_test}"
+TEST_DB="${TEST_DB:-automated_remediation_release_smoke_test}"
 
 EXPECTED_FINDING_CLASSES=43
 EXPECTED_GENERIC_RULES=43
@@ -41,6 +41,10 @@ SQL_FILES=(
     "database/migrations/009_risk_contextualisation.sql"
     "database/010_harden_remediation_routing.sql"
     "database/migrations/011_risk_aware_remediation_prioritisation.sql"
+    "database/migrations/012_fix_package_vulnerability_rule.sql"
+    "database/migrations/013_restore_remediation_attempt_trigger.sql"
+    "database/migrations/014_remediation_retry_cooldown.sql"
+    "database/migrations/015_remediation_execution_targets.sql"
 )
 
 cleanup() {
@@ -193,6 +197,9 @@ ANSIBLE_RUNNER_DOCKERFILE="ansible-runner/Dockerfile"
 ENRICHER_SERVICE="deployment/systemd/ollama-wazuh-enricher.service"
 ENRICHER_OVERRIDE="deployment/systemd/ollama-wazuh-enricher.service.d/override.conf"
 CONTROLLER_ENV="deployment/systemd/env/remediation-controller.env.example"
+REMEDIATION_DISPATCHER_SERVICE="deployment/systemd/remediation-dispatcher.service"
+REMEDIATION_DISPATCHER_TIMER="deployment/systemd/remediation-dispatcher.timer"
+REMEDIATION_DISPATCHER_ENV="deployment/systemd/env/remediation-dispatcher.env.example"
 SCANNER_ENV="deployment/systemd/env/verification-scanner.env.example"
 WAZUH_INDEXER_ENV="deployment/systemd/env/wazuh-indexer.env.example"
 
@@ -204,6 +211,9 @@ for file in \
     "${ANSIBLE_RUNNER_DOCKERFILE}" \
     "${ENRICHER_SERVICE}" \
     "${CONTROLLER_ENV}" \
+    "${REMEDIATION_DISPATCHER_SERVICE}" \
+    "${REMEDIATION_DISPATCHER_TIMER}" \
+    "${REMEDIATION_DISPATCHER_ENV}" \
     "${SCANNER_ENV}" \
     "${WAZUH_INDEXER_ENV}"
 do
@@ -255,6 +265,56 @@ grep -Fxq 'CONTROLLER_HOST=127.0.0.1' "${CONTROLLER_ENV}" \
 
 grep -Fxq 'CONTROLLER_PORT=9000' "${CONTROLLER_ENV}" \
     || fail "Controller environment example has the wrong controller port."
+
+
+# The remediation dispatcher is a timer-driven one-shot service.
+grep -Fxq 'Type=oneshot' "${REMEDIATION_DISPATCHER_SERVICE}" \
+    || fail "Remediation dispatcher must remain a one-shot service."
+
+grep -Fxq \
+    'ExecStart=/opt/automated-remediation/venv/bin/python -m remediation.dispatcher' \
+    "${REMEDIATION_DISPATCHER_SERVICE}" \
+    || fail "Remediation dispatcher uses the wrong production entry point."
+
+grep -Fxq \
+    'EnvironmentFile=/etc/remediation-dispatcher.env' \
+    "${REMEDIATION_DISPATCHER_SERVICE}" \
+    || fail "Remediation dispatcher uses the wrong environment file."
+
+grep -Fxq \
+    'Wants=network-online.target remediation-controller.service' \
+    "${REMEDIATION_DISPATCHER_SERVICE}" \
+    || fail "Remediation dispatcher must request the controller dependency."
+
+grep -Fxq 'TimeoutStartSec=3000' "${REMEDIATION_DISPATCHER_SERVICE}" \
+    || fail "Remediation dispatcher systemd timeout is incorrect."
+
+grep -Fxq 'OnBootSec=30s' "${REMEDIATION_DISPATCHER_TIMER}" \
+    || fail "Remediation dispatcher timer has the wrong initial delay."
+
+grep -Fxq 'OnUnitInactiveSec=30s' "${REMEDIATION_DISPATCHER_TIMER}" \
+    || fail "Remediation dispatcher timer has the wrong invocation cadence."
+
+grep -Fxq \
+    'Unit=remediation-dispatcher.service' \
+    "${REMEDIATION_DISPATCHER_TIMER}" \
+    || fail "Remediation dispatcher timer targets the wrong service."
+
+grep -Fxq 'Persistent=true' "${REMEDIATION_DISPATCHER_TIMER}" \
+    || fail "Remediation dispatcher timer must remain persistent."
+
+grep -Fxq 'CONTROLLER_TOKEN=CHANGE_ME' "${REMEDIATION_DISPATCHER_ENV}" \
+    || fail "Remediation dispatcher environment example is missing CONTROLLER_TOKEN."
+
+grep -Fxq \
+    'CONTROLLER_REMEDIATE_URL=http://127.0.0.1:9000/remediate' \
+    "${REMEDIATION_DISPATCHER_ENV}" \
+    || fail "Remediation dispatcher environment example has the wrong controller URL."
+
+grep -Fxq \
+    'CONTROLLER_REQUEST_TIMEOUT=2700' \
+    "${REMEDIATION_DISPATCHER_ENV}" \
+    || fail "Remediation dispatcher controller timeout is incorrect."
 
 # Ansible Runner Python dependencies must remain pinned to the tested versions.
 grep -Fxq 'ansible==12.3.0' "${ANSIBLE_RUNNER_REQUIREMENTS}" \
@@ -542,14 +602,18 @@ pass "Database reconstruction completed successfully."
 echo
 echo "[9/11] Checking deterministic asset resolution..."
 
-PG_PASSWORD="$(
-    docker inspect "${PG_CONTAINER}" \
-        --format '{{range .Config.Env}}{{println .}}{{end}}' \
-    | sed -n 's/^POSTGRES_PASSWORD=//p'
-)"
+if [[ -n "${PGPASSWORD:-}" ]]; then
+    PG_PASSWORD="${PGPASSWORD}"
+else
+    PG_PASSWORD="$(
+        docker inspect "${PG_CONTAINER}" \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' \
+        | sed -n 's/^POSTGRES_PASSWORD=//p'
+    )"
+fi
 
 if [[ -z "${PG_PASSWORD}" ]]; then
-    fail "PostgreSQL container does not expose POSTGRES_PASSWORD."
+    fail "No PostgreSQL password is available."
 fi
 
 PG_HOST=127.0.0.1 \
@@ -602,7 +666,16 @@ python3 tests/test_risk_aware_remediation_prioritisation.py \
 
 python3 tests/test_controller_api_error_codes.py || fail "Controller API error-code regression failed."
 
-python3 tests/test_remediation_dispatcher.py || fail "Remediation dispatcher regression failed."
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${PG_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_remediation_target_safety.py \
+    || fail "Remediation target-safety regression failed."
+
+python3 tests/test_remediation_dispatcher.py \
+    || fail "Remediation dispatcher regression failed."
 
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \

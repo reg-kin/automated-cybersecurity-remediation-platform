@@ -21,7 +21,7 @@ logger = logging.getLogger("automated_remediation.dispatcher")
 
 NEXT_REMEDIATION_SQL = """
 SELECT *
-FROM prioritised_remediation_queue
+FROM eligible_remediation_queue
 ORDER BY
     has_contextual_risk DESC,
     contextual_risk_score DESC NULLS LAST,
@@ -154,6 +154,18 @@ def main():
     result = dispatch_once()
     logger.info("Dispatcher outcome: %s", result)
 
+    successful_outcomes = {
+        "NO_ELIGIBLE_FINDING",
+        "ACCEPTED",
+        "AWAITING_APPROVAL",
+        "DUPLICATE_ACTIVE_EXECUTION",
+    }
+
+    if result["outcome"] in successful_outcomes:
+        return 0
+
+    return 1
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

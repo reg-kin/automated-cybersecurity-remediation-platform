@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+from datetime import datetime, timezone
 import logging
 import logging.handlers
 import os
@@ -47,7 +48,7 @@ PG = {
     "port": int(os.getenv("PG_PORT", "5432")),
     "dbname": os.getenv(
         "PG_DBNAME",
-        "regis_release_smoke_test",
+        "automated_remediation_release_smoke_test",
     ),
     "user": os.getenv("PG_USER", "telemetry_admin"),
     "password": os.getenv("PG_PASSWORD", ""),
@@ -159,7 +160,6 @@ def clean_database():
     finally:
         conn.close()
 
-
 def fetch_finding_asset(engine_source):
     conn = psycopg2.connect(**PG)
 
@@ -186,6 +186,47 @@ def fetch_finding_asset(engine_source):
                 )
 
             return row[0]
+    finally:
+        conn.close()
+
+
+def fetch_finding_state(engine_source):
+    conn = psycopg2.connect(**PG)
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    lifecycle_status,
+                    recurrence_count,
+                    last_reopened_at,
+                    remediated_at,
+                    next_remediation_attempt_at
+                FROM unified_security_findings
+                WHERE tenant_code = %s
+                  AND engine_source = %s
+                """,
+                (
+                    TENANT,
+                    engine_source,
+                ),
+            )
+
+            row = cur.fetchone()
+
+            if row is None:
+                raise AssertionError(
+                    f"No finding stored for {engine_source}"
+                )
+
+            return {
+                "lifecycle_status": row[0],
+                "recurrence_count": row[1],
+                "last_reopened_at": row[2],
+                "remediated_at": row[3],
+                "next_remediation_attempt_at": row[4],
+            }
     finally:
         conn.close()
 
@@ -618,6 +659,93 @@ def main():
                 "PASS: unresolved re-ingestion preserves "
                 "the existing finding asset_id and uses "
                 "that persisted asset for contextual risk"
+            )
+
+            #
+            # A genuinely recurring scanner finding must reopen a
+            # previously resolved finding and clear any remediation
+            # retry cooldown. Scanner recurrence is a new occurrence,
+            # not a retry of the failed remediation attempt.
+            #
+            conn = psycopg2.connect(**PG)
+
+            try:
+                with conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            UPDATE unified_security_findings
+                            SET
+                                lifecycle_status = 'RESOLVED',
+                                remediated_at =
+                                    now() - INTERVAL '10 minutes',
+                                next_remediation_attempt_at =
+                                    now() + INTERVAL '1 hour'
+                            WHERE tenant_code = %s
+                              AND engine_source =
+                                  'wazuh_vulnerability'
+                            """,
+                            (TENANT,),
+                        )
+            finally:
+                conn.close()
+
+            resolved_state = fetch_finding_state(
+                "wazuh_vulnerability"
+            )
+
+            assert (
+                resolved_state["lifecycle_status"]
+                == "RESOLVED"
+            )
+            assert resolved_state["remediated_at"] is not None
+            assert (
+                resolved_state["next_remediation_attempt_at"]
+                is not None
+            )
+
+            #
+            # The worker's recurrence grace defaults to 300 seconds.
+            # The existing remediated_at is deliberately more than
+            # that grace period in the past, so a newly detected
+            # scanner occurrence must be treated as genuine
+            # recurrence.
+            #
+            recurring_finding = dict(
+                vulnerability_finding
+            )
+            recurring_finding["detected_at"] = (
+                datetime.now(timezone.utc).isoformat()
+            )
+
+            worker.process_ai_enrichment(
+                recurring_finding
+            )
+
+            recurrence_state = fetch_finding_state(
+                "wazuh_vulnerability"
+            )
+
+            assert (
+                recurrence_state["lifecycle_status"]
+                == "OPEN"
+            )
+            assert recurrence_state["recurrence_count"] == 1
+            assert (
+                recurrence_state["last_reopened_at"]
+                is not None
+            )
+            assert recurrence_state["remediated_at"] is None
+            assert (
+                recurrence_state[
+                    "next_remediation_attempt_at"
+                ]
+                is None
+            )
+
+            print(
+                "PASS: genuine scanner recurrence reopens "
+                "the finding and clears retry cooldown"
             )
 
     finally:

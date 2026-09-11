@@ -12,7 +12,7 @@ PG = {
     "port": int(os.getenv("PG_PORT", "5432")),
     "dbname": os.getenv(
         "PG_DBNAME",
-        "regis_release_smoke_test",
+        "automated_remediation_release_smoke_test",
     ),
     "user": os.getenv("PG_USER", "telemetry_admin"),
     "password": os.getenv("PG_PASSWORD", ""),

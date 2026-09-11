@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule Automated Remediation Dispatcher
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=30s
+Unit=remediation-dispatcher.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

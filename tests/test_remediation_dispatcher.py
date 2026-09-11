@@ -38,7 +38,7 @@ print("PASS: dispatcher response classification")
 
 
 sql = " ".join(dispatcher.NEXT_REMEDIATION_SQL.split())
-assert "FROM prioritised_remediation_queue" in sql
+assert "FROM eligible_remediation_queue" in sql
 assert "has_contextual_risk DESC" in sql
 assert "contextual_risk_score DESC NULLS LAST" in sql
 assert "detected_at ASC" in sql
@@ -158,3 +158,25 @@ with patch.object(dispatcher, "CONTROLLER_TOKEN", ""):
         raise AssertionError("blank controller token was accepted")
 
 print("PASS: dispatcher controller token fails closed")
+
+for outcome, expected_exit_code in (
+    ("NO_ELIGIBLE_FINDING", 0),
+    ("ACCEPTED", 0),
+    ("AWAITING_APPROVAL", 0),
+    ("DUPLICATE_ACTIVE_EXECUTION", 0),
+    ("PERMANENT_REQUEST_FAILURE", 1),
+    ("AUTHENTICATION_FAILURE", 1),
+    ("STATE_CONFLICT", 1),
+    ("RETRYABLE_FAILURE", 1),
+    ("UNEXPECTED_RESPONSE", 1),
+):
+    with patch.object(
+        dispatcher,
+        "dispatch_once",
+        return_value={"outcome": outcome},
+    ):
+        exit_code = dispatcher.main()
+
+    assert exit_code == expected_exit_code
+
+print("PASS: dispatcher process exit-code contract")

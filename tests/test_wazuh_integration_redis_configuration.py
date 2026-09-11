@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 
 import ast
+import json
 import os
+import runpy
+import sys
+import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 INTEGRATION = Path(
@@ -92,9 +96,68 @@ def test_environment_override():
     )
 
 
+def test_full_log_preserves_native_json_types():
+    canonical_payload = {
+        "tenant_code": "Customer1",
+        "engine_source": "wazuh_vulnerability",
+        "severity_score": 7.5,
+        "ai_analysis": None,
+        "engine_metadata": {
+            "targeted_verification_supported": False,
+        },
+    }
+
+    alert = {
+        "rule": {"id": "100501"},
+        "full_log": json.dumps(canonical_payload),
+        "data": {
+            "tenant_code": "Customer1",
+            "engine_source": "wazuh_vulnerability",
+            "severity_score": "7.500000",
+            "ai_analysis": "null",
+            "engine_metadata": {
+                "targeted_verification_supported": "false",
+            },
+        },
+    }
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        delete=False,
+    ) as handle:
+        json.dump(alert, handle)
+        alert_path = handle.name
+
+    queue = MagicMock()
+    job = MagicMock()
+    job.id = "test-job"
+    queue.enqueue.return_value = job
+
+    try:
+        with patch.object(sys, "argv", [str(INTEGRATION), alert_path]), \
+             patch("logging.basicConfig"), \
+             patch("rq.Queue", return_value=queue), \
+             patch("redis.Redis"):
+            try:
+                runpy.run_path(str(INTEGRATION), run_name="__main__")
+            except SystemExit as exc:
+                assert exc.code == 0
+    finally:
+        os.unlink(alert_path)
+
+    queued_payload = queue.enqueue.call_args.args[1]
+
+    assert queued_payload["ai_analysis"] is None
+    assert queued_payload["severity_score"] == 7.5
+    assert isinstance(queued_payload["severity_score"], float)
+    assert queued_payload["engine_metadata"]["targeted_verification_supported"] is False
+
+
 def main():
     test_default_endpoint()
     test_environment_override()
+    test_full_log_preserves_native_json_types()
 
     print(
         "PASS: Wazuh integration Redis endpoint is "

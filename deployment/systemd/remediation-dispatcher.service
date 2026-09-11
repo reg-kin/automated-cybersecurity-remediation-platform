@@ -1,0 +1,20 @@
+[Unit]
+Description=Automated Remediation Dispatcher
+After=network-online.target remediation-controller.service
+Wants=network-online.target remediation-controller.service
+
+[Service]
+Type=oneshot
+
+WorkingDirectory=/opt/automated-remediation
+
+EnvironmentFile=/etc/remediation-dispatcher.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/automated-remediation
+
+ExecStart=/opt/automated-remediation/venv/bin/python -m remediation.dispatcher
+
+TimeoutStartSec=3000
+
+StandardOutput=journal
+StandardError=journal
