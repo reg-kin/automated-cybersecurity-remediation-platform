@@ -65,6 +65,7 @@ def payload(**overrides):
         "finding_id": 101,
         "rule_id": 201,
         "target_host": "192.0.2.10",
+        "execution_target": "192.0.2.10",
         "engine_source": "nuclei",
         "finding_class": "os_package_vulnerability",
         "finding_key": "finding-key-101",
@@ -195,6 +196,11 @@ with (
     ),
     patch.object(
         base.db,
+        "get_authorised_execution_target",
+        return_value="192.0.2.10",
+    ),
+    patch.object(
+        base.db,
         "ensure_claimed",
     ),
     patch.object(
@@ -229,6 +235,150 @@ created_payload = (
 assert (
     created_payload["initial_status"]
     == "AWAITING_APPROVAL"
+)
+
+assert (
+    created_payload["target_host"]
+    == "192.0.2.10"
+)
+
+# ---------------------------------------------------------------------------
+# Approval continuation preserves execution/scanner target separation
+# ---------------------------------------------------------------------------
+
+approved_execution = {
+    "finding_id": 101,
+    "rule_id": 201,
+    "target_host": "192.0.2.200",
+    "capability": "os_patching",
+    "playbook_name": "os_patching.yml",
+    "remediation_action": "patch_package",
+    "automation_tier": "TIER_3",
+    "execution_parameters": {},
+    "status": "AWAITING_APPROVAL",
+}
+
+approved_finding = finding(
+    lifecycle_status="IN_REMEDIATION",
+    target_host="192.0.2.10",
+)
+
+execute_existing = Mock(
+    return_value={
+        "success": True,
+        "execution_id": 304,
+    }
+)
+
+update_execution_status = Mock()
+
+with (
+    patch.object(
+        base.db,
+        "connect",
+        return_value=DummyConnection(),
+    ),
+    patch.object(
+        base.db,
+        "get_execution_for_approval",
+        return_value=approved_execution,
+    ),
+    patch.object(
+        base.db,
+        "get_finding",
+        return_value=approved_finding,
+    ),
+    patch.object(
+        base.db,
+        "update_execution_status",
+        update_execution_status,
+    ),
+    patch.object(
+        controller,
+        "execute_existing",
+        execute_existing,
+    ),
+):
+    result = controller.approve(304)
+
+assert result["success"] is True
+
+approval_execution_payload = (
+    execute_existing.call_args.args[0]
+)
+
+assert (
+    approval_execution_payload["target_host"]
+    == "192.0.2.200"
+)
+
+assert (
+    approval_execution_payload["scanner_target_host"]
+    == "192.0.2.10"
+)
+
+assert (
+    execute_existing.call_args.args[1]
+    == 304
+)
+
+assert (
+    execute_existing.call_args.kwargs[
+        "already_running"
+    ]
+    is True
+)
+
+update_execution_status.assert_called_once()
+
+assert (
+    update_execution_status.call_args.args[2]
+    == "RUNNING"
+)
+
+print(
+    "PASS: approval continuation preserves "
+    "execution/scanner target separation"
+)
+
+# ---------------------------------------------------------------------------
+# Execution target must match the authoritative management-plane target
+# ---------------------------------------------------------------------------
+
+with (
+    patch.object(
+        base.db,
+        "connect",
+        side_effect=lambda: DummyConnection(),
+    ),
+    patch.object(
+        base.db,
+        "get_remediation_rule",
+        return_value=rule(),
+    ),
+    patch.object(
+        base.db,
+        "get_finding",
+        return_value=finding(),
+    ),
+    patch.object(
+        base.db,
+        "get_authorised_execution_target",
+        return_value="192.0.2.200",
+    ),
+):
+    expect_value_error(
+        lambda: controller.execute(
+            payload(
+                execution_target="192.0.2.201"
+            )
+        ),
+        "does not match the authorised execution target",
+    )
+
+print(
+    "PASS: controller rejects non-authorised "
+    "execution target"
 )
 
 
@@ -291,11 +441,12 @@ with (
     ),
 ):
     result = controller.execute_existing(
-        payload(),
+        payload(scanner_target_host="192.0.2.10"),
         302,
     )
 
 assert result["success"] is False
+
 assert result["stage1"]["status"] == "FAILED"
 
 run_stage2.assert_not_called()
@@ -324,6 +475,23 @@ assert any(
 update_status = Mock()
 resolve_finding = Mock()
 reopen_failed = Mock()
+
+run_ansible = Mock(
+    return_value={
+        "success": True,
+        "job_id": "job-stage2-success",
+        "verification": {
+            "passed": True,
+        },
+    }
+)
+
+run_stage2 = Mock(
+    return_value={
+        "verification_status": "PASSED",
+        "present": False,
+    }
+)
 
 with (
     patch.object(
@@ -358,21 +526,12 @@ with (
     patch.object(
         base,
         "run_ansible",
-        return_value={
-            "success": True,
-            "job_id": "job-stage2-success",
-            "verification": {
-                "passed": True,
-            },
-        },
+        run_ansible,
     ),
     patch.object(
         base,
         "run_stage2",
-        return_value={
-            "verification_status": "PASSED",
-            "present": False,
-        },
+        run_stage2,
     ),
     patch.object(
         base,
@@ -381,11 +540,29 @@ with (
     ),
 ):
     result = controller.execute_existing(
-        payload(),
+        payload(
+            target_host="192.0.2.200",
+            scanner_target_host="192.0.2.10",
+        ),
         303,
     )
 
 assert result["success"] is True
+
+assert (
+    run_ansible.call_args.args[1]
+    == "192.0.2.200"
+)
+
+verification_payload = (
+    run_stage2.call_args.args[0]
+)
+
+assert (
+    verification_payload["target_host"]
+    == "192.0.2.10"
+)
+
 resolve_finding.assert_called_once()
 reopen_failed.assert_not_called()
 
@@ -466,7 +643,7 @@ with (
     ),
 ):
     result = controller.execute_existing(
-        payload(),
+        payload(scanner_target_host="192.0.2.10"),
         304,
     )
 
@@ -544,7 +721,7 @@ with (
     ),
 ):
     result = controller.execute_existing(
-        payload(),
+        payload(scanner_target_host="192.0.2.10"),
         305,
     )
 
@@ -575,6 +752,7 @@ create_deferred = Mock(
 run_stage2 = Mock()
 
 deferred_payload = payload(
+    scanner_target_host="192.0.2.10",
     engine_source="wazuh_vulnerability",
     engine_metadata={
         "verification_capability":

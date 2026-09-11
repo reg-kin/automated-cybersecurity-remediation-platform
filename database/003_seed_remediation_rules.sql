@@ -2,7 +2,7 @@ INSERT INTO remediation_rules
 (rule_name,finding_class,finding_key_pattern,engine_source,target_os_family,capability,playbook_name,remediation_action,parameter_template,required_parameters,automation_tier,approval_required,priority,enabled,description)
 VALUES
 ('cve_generic','cve',NULL,NULL,NULL,'os_patching','os_patching.yml','patch_cve','{}'::jsonb,'[]'::jsonb,'TIER_2',TRUE,100,TRUE,'Generic remediation rule for cve'),
-('package_vulnerability_generic','package_vulnerability',NULL,NULL,NULL,'os_patching','os_patching.yml','patch_package','{"package_name": "{{ engine_metadata.package_name }}", "fixed_version": "{{ engine_metadata.fixed_version }}"}'::jsonb,'["package_name"]'::jsonb,'TIER_1',FALSE,100,TRUE,'Generic remediation rule for package_vulnerability'),
+('package_vulnerability_generic','package_vulnerability',NULL,NULL,NULL,'os_patching','os_patching.yml','patch_package','{"package_name": "{{ engine_metadata.package_name }}"}'::jsonb,'["package_name"]'::jsonb,'TIER_1',FALSE,100,TRUE,'Generic remediation rule for package_vulnerability'),
 ('kernel_vulnerability_generic','kernel_vulnerability',NULL,NULL,NULL,'os_patching','os_patching.yml','kernel_update','{}'::jsonb,'[]'::jsonb,'TIER_2',TRUE,100,TRUE,'Generic remediation rule for kernel_vulnerability'),
 ('unsupported_software_generic','unsupported_software',NULL,NULL,NULL,'os_patching','os_patching.yml','upgrade_or_remove','{}'::jsonb,'[]'::jsonb,'TIER_2',TRUE,100,TRUE,'Generic remediation rule for unsupported_software'),
 ('missing_security_update_generic','missing_security_update',NULL,NULL,NULL,'os_patching','os_patching.yml','security_updates','{}'::jsonb,'[]'::jsonb,'TIER_1',FALSE,100,TRUE,'Generic remediation rule for missing_security_update'),

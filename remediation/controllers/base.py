@@ -89,6 +89,7 @@ class BaseController:
             "finding_id",
             "rule_id",
             "target_host",
+            "execution_target",
             "engine_source",
             "finding_class",
             "finding_key",
@@ -328,12 +329,36 @@ class BaseController:
             )
 
             with conn:
+                execution_target = (
+                    db.get_authorised_execution_target(
+                        conn,
+                        p["finding_id"],
+                    )
+                )
+
+                if (
+                    p["execution_target"]
+                    != execution_target
+                ):
+                    raise ValueError(
+                        "Controller payload execution_target "
+                        "does not match the authorised "
+                        "execution target for finding "
+                        + str(p["finding_id"])
+                    )
+
                 db.ensure_claimed(
                     conn,
                     p["finding_id"],
                 )
 
                 create_payload = dict(p)
+
+                # remediation_executions.target_host stores
+                # the authorised management-plane target.
+                create_payload["target_host"] = (
+                    execution_target
+                )
 
                 create_payload[
                     "initial_status"
@@ -361,8 +386,18 @@ class BaseController:
                     "executed": False,
                 }
 
+            execution_payload = dict(p)
+
+            execution_payload["scanner_target_host"] = (
+                p["target_host"]
+            )
+
+            execution_payload["target_host"] = (
+                execution_target
+            )
+
             return self.execute_existing(
-                p,
+                execution_payload,
                 execution_id,
             )
 
@@ -446,6 +481,9 @@ class BaseController:
                     ),
                     "target_host": (
                         execution["target_host"]
+                    ),
+                    "scanner_target_host": (
+                        finding["target_host"]
                     ),
                     "engine_source": (
                         finding["engine_source"]
@@ -816,7 +854,7 @@ class BaseController:
             verification_payload = {
                 "finding_id": p["finding_id"],
                 "execution_id": execution_id,
-                "target_host": p["target_host"],
+                "target_host": p["scanner_target_host"],
                 "engine_source": (
                     p["engine_source"]
                 ),

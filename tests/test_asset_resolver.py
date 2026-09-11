@@ -21,7 +21,7 @@ PG_HOST = os.getenv("PG_HOST", "127.0.0.1")
 PG_PORT = int(os.getenv("PG_PORT", "5432"))
 PG_DATABASE = os.getenv(
     "PG_DBNAME",
-    "regis_release_smoke_test",
+    "automated_remediation_release_smoke_test",
 )
 PG_USER = os.getenv(
     "PG_USER",
