@@ -16,6 +16,9 @@ if str(ROOT) not in sys.path:
 
 
 from readiness_management.service import (
+    AssetNotFoundError,
+    ReadinessConflictError,
+    ReadinessValidationError,
     authorise_asset_management,
     authorise_execution_target,
     get_asset_readiness,
@@ -167,7 +170,7 @@ def main():
                     performed_by=ACTOR,
                     reason="Duplicate authorisation regression test",
                 )
-        except ValueError:
+        except ReadinessConflictError:
             duplicate_asset_authorisation_blocked = True
 
         assert duplicate_asset_authorisation_blocked is True
@@ -246,7 +249,7 @@ def main():
                         "Second-active-target regression test"
                     ),
                 )
-        except ValueError:
+        except ReadinessConflictError:
             second_active_target_blocked = True
 
         assert second_active_target_blocked is True
@@ -345,7 +348,7 @@ def main():
                     performed_by=ACTOR,
                     reason="Self-replacement regression test",
                 )
-        except ValueError:
+        except ReadinessConflictError:
             self_replacement_blocked = True
 
         assert self_replacement_blocked is True
@@ -374,7 +377,7 @@ def main():
                         "Unsafe revocation regression test"
                     ),
                 )
-        except ValueError:
+        except ReadinessConflictError:
             unsafe_asset_revocation_blocked = True
 
         assert unsafe_asset_revocation_blocked is True
@@ -614,7 +617,7 @@ def main():
                     performed_by=ACTOR,
                     reason="Cross-tenant access regression test",
                 )
-        except ValueError:
+        except AssetNotFoundError:
             tenant_isolation_blocked = True
 
         assert tenant_isolation_blocked is True
@@ -704,7 +707,7 @@ def main():
 
             try:
                 operation()
-            except ValueError:
+            except ReadinessValidationError:
                 blocked = True
 
             assert blocked is True, (

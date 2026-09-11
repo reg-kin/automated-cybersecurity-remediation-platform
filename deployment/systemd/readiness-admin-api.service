@@ -1,0 +1,29 @@
+[Unit]
+Description=Automated Remediation Readiness Administrative API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=automated-remediation
+Group=automated-remediation
+
+WorkingDirectory=/opt/automated-remediation
+
+EnvironmentFile=/etc/readiness-admin-api.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/automated-remediation
+
+ExecStart=/opt/automated-remediation/venv/bin/gunicorn --bind 127.0.0.1:9100 --workers 2 --timeout 30 readiness_management.api:app
+
+Restart=on-failure
+RestartSec=5
+
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
