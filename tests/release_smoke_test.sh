@@ -23,6 +23,11 @@ PG_CONTAINER="${PG_CONTAINER:-portal-datastore}"
 PG_USER="${PG_USER:-telemetry_admin}"
 TEST_DB="${TEST_DB:-automated_remediation_release_smoke_test}"
 
+SMOKE_DB_USER="remediation_smoke_$$"
+SMOKE_DB_PASSWORD="$(
+    python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+)"
+
 EXPECTED_FINDING_CLASSES=43
 EXPECTED_GENERIC_RULES=43
 EXPECTED_TOTAL_RULES=44
@@ -56,6 +61,14 @@ cleanup() {
             -d postgres \
             -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS ${TEST_DB};" \
+            >/dev/null 2>&1 || true
+
+        docker exec -i "${PG_CONTAINER}" \
+            psql \
+            -U "${PG_USER}" \
+            -d postgres \
+            -v ON_ERROR_STOP=1 \
+            -c "DROP ROLE IF EXISTS ${SMOKE_DB_USER};" \
             >/dev/null 2>&1 || true
     fi
 }
@@ -566,6 +579,20 @@ pass "PostgreSQL container is reachable."
 echo
 echo "[8/11] Reconstructing temporary database..."
 
+docker exec -i \
+    -e SMOKE_DB_PASSWORD="${SMOKE_DB_PASSWORD}" \
+    "${PG_CONTAINER}" \
+    psql \
+    -U "${PG_USER}" \
+    -d postgres \
+    -v ON_ERROR_STOP=1 <<SQL
+\\getenv smoke_db_password SMOKE_DB_PASSWORD
+
+CREATE ROLE ${SMOKE_DB_USER}
+    LOGIN
+    PASSWORD :'smoke_db_password';
+SQL
+
 docker exec -i "${PG_CONTAINER}" \
     psql \
     -U "${PG_USER}" \
@@ -594,6 +621,26 @@ for file in "${SQL_FILES[@]}"; do
         >/dev/null
 done
 
+docker exec -i "${PG_CONTAINER}" \
+    psql \
+    -U "${PG_USER}" \
+    -d "${TEST_DB}" \
+    -v ON_ERROR_STOP=1 <<SQL
+GRANT CONNECT ON DATABASE ${TEST_DB}
+    TO ${SMOKE_DB_USER};
+
+GRANT USAGE ON SCHEMA public
+    TO ${SMOKE_DB_USER};
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON ALL TABLES IN SCHEMA public
+    TO ${SMOKE_DB_USER};
+
+GRANT USAGE, SELECT, UPDATE
+    ON ALL SEQUENCES IN SCHEMA public
+    TO ${SMOKE_DB_USER};
+SQL
+
 pass "Database reconstruction completed successfully."
 
 # ---------------------------------------------------------------------------
@@ -603,24 +650,12 @@ pass "Database reconstruction completed successfully."
 echo
 echo "[9/11] Checking deterministic asset resolution..."
 
-if [[ -n "${PGPASSWORD:-}" ]]; then
-    PG_PASSWORD="${PGPASSWORD}"
-else
-    PG_PASSWORD="$(
-        docker inspect "${PG_CONTAINER}" \
-            --format '{{range .Config.Env}}{{println .}}{{end}}' \
-        | sed -n 's/^POSTGRES_PASSWORD=//p'
-    )"
-fi
-
-if [[ -z "${PG_PASSWORD}" ]]; then
-    fail "No PostgreSQL password is available."
-fi
+PG_PASSWORD="${SMOKE_DB_PASSWORD}"
 
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
-PG_USER="${PG_USER}" \
+PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_asset_resolver.py \
     || fail "Deterministic asset resolver regression failed."
@@ -628,7 +663,7 @@ python3 tests/test_asset_resolver.py \
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
-PG_USER="${PG_USER}" \
+PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_enricher_asset_integration.py \
     || fail "Enricher asset integration regression failed."
@@ -636,7 +671,7 @@ python3 tests/test_enricher_asset_integration.py \
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
-PG_USER="${PG_USER}" \
+PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_asset_context.py \
     || fail "Asset context management regression failed."
@@ -644,7 +679,7 @@ python3 tests/test_asset_context.py \
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
-PG_USER="${PG_USER}" \
+PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_risk_persistence.py \
     || fail "Risk persistence regression failed."
@@ -652,7 +687,7 @@ python3 tests/test_risk_persistence.py \
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
-PG_USER="${PG_USER}" \
+PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_risk_reassessment.py \
     || fail "Risk reassessment regression failed."
@@ -660,7 +695,7 @@ python3 tests/test_risk_reassessment.py \
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
-PG_USER="${PG_USER}" \
+PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_risk_aware_remediation_prioritisation.py \
     || fail "Risk-aware remediation prioritisation regression failed."
@@ -670,7 +705,7 @@ python3 tests/test_controller_api_error_codes.py || fail "Controller API error-c
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
-PG_USER="${PG_USER}" \
+PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_remediation_target_safety.py \
     || fail "Remediation target-safety regression failed."
@@ -678,10 +713,18 @@ python3 tests/test_remediation_target_safety.py \
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
-PG_USER="${PG_USER}" \
+PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_asset_remediation_readiness.py \
     || fail "Asset remediation readiness regression failed."
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_administrative_readiness_management.py \
+    || fail "Administrative readiness management regression failed."
 
 python3 tests/test_remediation_dispatcher.py \
     || fail "Remediation dispatcher regression failed."
@@ -689,7 +732,7 @@ python3 tests/test_remediation_dispatcher.py \
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
-PG_USER="${PG_USER}" \
+PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_remediation_workflow_orchestration.py \
     || fail "Remediation workflow orchestration regression failed."
