@@ -55,6 +55,7 @@ SQL_FILES=(
     "database/migrations/018_scan_execution_lease_safety.sql"
     "database/migrations/019_scan_execution_node_authentication.sql"
     "database/migrations/020_scan_execution_context.sql"
+    "database/migrations/021_scan_policy_scheduling.sql"
 )
 
 cleanup() {

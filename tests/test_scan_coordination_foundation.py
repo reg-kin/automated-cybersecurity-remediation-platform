@@ -3,6 +3,7 @@
 """Regression tests for Scan Coordination Foundation V1."""
 
 import os
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 from psycopg2 import errors
@@ -139,6 +140,7 @@ def create_policy(
     profile_name="default",
     schedule_type="CRON",
     schedule_expression="0 * * * *",
+    next_run_at=None,
 ):
     with conn.cursor() as cur:
         cur.execute(
@@ -150,9 +152,10 @@ def create_policy(
                 service_tier,
                 profile_name,
                 schedule_type,
-                schedule_expression
+                schedule_expression,
+                next_run_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING scan_policy_id
             """,
             (
@@ -163,6 +166,7 @@ def create_policy(
                 profile_name,
                 schedule_type,
                 schedule_expression,
+                next_run_at,
             ),
         )
 
@@ -182,6 +186,7 @@ def create_execution(
     subject_type="IP_ADDRESS",
     subject_value="192.0.2.10",
     status="PENDING",
+    scheduled_for=None,
 ):
     with conn.cursor() as cur:
         cur.execute(
@@ -210,7 +215,7 @@ def create_execution(
                 %s,
                 %s,
                 %s,
-                now()
+                COALESCE(%s, now())
             )
             RETURNING scan_execution_id
             """,
@@ -225,6 +230,7 @@ def create_execution(
                 subject_type,
                 subject_value,
                 status,
+                scheduled_for,
             ),
         )
 
@@ -616,6 +622,58 @@ def main():
         )
 
         # ------------------------------------------------------------------
+        # CRON may temporarily have no next_run_at.
+        # ------------------------------------------------------------------
+
+        with conn:
+            cron_without_next_run = create_policy(
+                conn,
+                tenant_code=TENANT_A,
+                asset_id=asset_a,
+                scanner_type="trivy",
+                profile_name="cron-without-next-run",
+                schedule_type="CRON",
+                schedule_expression="15 * * * *",
+                next_run_at=None,
+            )
+
+        assert cron_without_next_run is not None
+
+        print(
+            "PASS: CRON scan policy may temporarily have NULL next_run_at"
+        )
+
+        # ------------------------------------------------------------------
+        # MANUAL must never carry automatic next_run_at state.
+        # ------------------------------------------------------------------
+
+        def manual_with_next_run():
+            with conn:
+                create_policy(
+                    conn,
+                    tenant_code=TENANT_A,
+                    asset_id=asset_a,
+                    scanner_type="trivy",
+                    profile_name="manual-with-next-run",
+                    schedule_type="MANUAL",
+                    schedule_expression=None,
+                    next_run_at=datetime(
+                        2026,
+                        9,
+                        13,
+                        10,
+                        0,
+                        tzinfo=timezone.utc,
+                    ),
+                )
+
+        expect_integrity_error(manual_with_next_run)
+
+        print(
+            "PASS: MANUAL scan policy rejects non-NULL next_run_at"
+        )
+
+        # ------------------------------------------------------------------
         # Execution preserves selected node and resolved scanner subject.
         # ------------------------------------------------------------------
 
@@ -712,6 +770,96 @@ def main():
 
         print(
             "PASS: terminal scan execution permits a later policy execution"
+        )
+
+        # ------------------------------------------------------------------
+        # One scheduled occurrence may create exactly one execution.
+        #
+        # The first execution is deliberately made terminal before attempting
+        # the duplicate. This proves occurrence idempotency independently of
+        # uq_scan_policy_active_execution.
+        # ------------------------------------------------------------------
+
+        occurrence_time = datetime(
+            2026,
+            9,
+            13,
+            10,
+            0,
+            tzinfo=timezone.utc,
+        )
+
+        with conn:
+            occurrence_policy = create_policy(
+                conn,
+                tenant_code=TENANT_A,
+                asset_id=asset_a,
+                scanner_type="nmap_nse",
+                profile_name="occurrence-idempotency",
+            )
+
+            first_occurrence_execution = create_execution(
+                conn,
+                policy_id=occurrence_policy,
+                tenant_code=TENANT_A,
+                asset_id=asset_a,
+                node_id=node_a,
+                scheduled_for=occurrence_time,
+            )
+
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE scan_executions
+                    SET
+                        status = 'SUCCEEDED',
+                        started_at = scheduled_for,
+                        completed_at = scheduled_for
+                    WHERE scan_execution_id = %s
+                    """,
+                    (first_occurrence_execution,),
+                )
+
+        def duplicate_policy_occurrence():
+            with conn:
+                create_execution(
+                    conn,
+                    policy_id=occurrence_policy,
+                    tenant_code=TENANT_A,
+                    asset_id=asset_a,
+                    node_id=node_a,
+                    subject_value="192.0.2.20",
+                    scheduled_for=occurrence_time,
+                )
+
+        expect_integrity_error(duplicate_policy_occurrence)
+
+        print(
+            "PASS: duplicate scheduled occurrence is rejected after "
+            "the original execution is terminal"
+        )
+
+        with conn:
+            next_occurrence_execution = create_execution(
+                conn,
+                policy_id=occurrence_policy,
+                tenant_code=TENANT_A,
+                asset_id=asset_a,
+                node_id=node_a,
+                subject_value="192.0.2.21",
+                scheduled_for=(
+                    occurrence_time
+                    + timedelta(hours=1)
+                ),
+            )
+
+        assert (
+            next_occurrence_execution
+            != first_occurrence_execution
+        )
+
+        print(
+            "PASS: later scheduled occurrence remains permitted"
         )
 
         # ------------------------------------------------------------------
