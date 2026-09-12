@@ -51,6 +51,10 @@ SQL_FILES=(
     "database/migrations/014_remediation_retry_cooldown.sql"
     "database/migrations/015_remediation_execution_targets.sql"
     "database/migrations/016_asset_remediation_readiness.sql"
+    "database/migrations/017_scan_coordination.sql"
+    "database/migrations/018_scan_execution_lease_safety.sql"
+    "database/migrations/019_scan_execution_node_authentication.sql"
+    "database/migrations/020_scan_execution_context.sql"
 )
 
 cleanup() {
@@ -734,6 +738,54 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_readiness_admin_api.py \
     || fail "Readiness administrative API regression failed."
 
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_scan_coordination_foundation.py \
+    || fail "Scan coordination foundation regression failed."
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_scan_execution_lease_safety.py \
+    || fail "Scan execution lease-safety regression failed."
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_scan_coordination_service.py \
+    || fail "Scan coordination service regression failed."
+
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_scan_execution_node_authentication.py \
+    || fail "Scan execution-node authentication regression failed."
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_scan_coordination_agent_api.py \
+    || fail "Scan Coordination Agent API regression failed."
+
+python3 tests/test_scan_execution_scanner_adapters.py \
+    || fail "Scan execution scanner-adapter regression failed."
+
+python3 tests/test_scan_execution_agent.py \
+    || fail "Scan execution agent regression failed."
+
+
 python3 tests/test_remediation_dispatcher.py \
     || fail "Remediation dispatcher regression failed."
 
@@ -975,6 +1027,170 @@ risk_assessment_pk_count="$(
           AND contype = 'p';
         "
 )"
+
+scan_coordination_table_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name IN (
+              'scan_execution_nodes',
+              'scan_execution_node_capabilities',
+              'scan_execution_node_assets',
+              'scan_policies',
+              'scan_executions'
+          );
+        "
+)"
+
+scan_node_credential_table_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'scan_execution_node_credentials';
+        "
+)"
+
+scan_service_tier_column_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND column_name = 'service_tier'
+          AND table_name IN (
+              'scan_policies',
+              'scan_executions'
+          );
+        "
+)"
+
+scan_service_tier_not_null_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND column_name = 'service_tier'
+          AND table_name IN (
+              'scan_policies',
+              'scan_executions'
+          )
+          AND is_nullable = 'NO';
+        "
+)"
+
+scan_policy_execution_node_column_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'scan_policies'
+          AND column_name = 'execution_node_id';
+        "
+)"
+
+scan_tenant_asset_fk_table_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(DISTINCT child.relname)
+        FROM pg_constraint c
+        JOIN pg_class child
+          ON child.oid = c.conrelid
+        JOIN pg_namespace child_ns
+          ON child_ns.oid = child.relnamespace
+        JOIN pg_class parent
+          ON parent.oid = c.confrelid
+        WHERE child_ns.nspname = 'public'
+          AND c.contype = 'f'
+          AND child.relname IN (
+              'scan_execution_node_assets',
+              'scan_policies',
+              'scan_executions'
+          )
+          AND parent.relname = 'assets'
+          AND pg_get_constraintdef(c.oid) LIKE
+              'FOREIGN KEY (asset_id, tenant_code) REFERENCES assets(asset_id, tenant_code)%';
+        "
+)"
+
+scan_active_execution_index_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM pg_class index_relation
+        JOIN pg_index index_metadata
+          ON index_metadata.indexrelid = index_relation.oid
+        JOIN pg_class table_relation
+          ON table_relation.oid = index_metadata.indrelid
+        JOIN pg_namespace table_namespace
+          ON table_namespace.oid = table_relation.relnamespace
+        WHERE table_namespace.nspname = 'public'
+          AND table_relation.relname = 'scan_executions'
+          AND index_relation.relname = 'uq_scan_policy_active_execution'
+          AND index_metadata.indisunique IS TRUE
+          AND index_metadata.indpred IS NOT NULL;
+        "
+)"
+
+[[ "${scan_coordination_table_count}" == "5" ]] \
+    || fail "Expected 5 scan-coordination tables, found ${scan_coordination_table_count}."
+
+[[ "${scan_node_credential_table_count}" == "1" ]] \
+    || fail "Expected exactly one scan execution-node credential table, found ${scan_node_credential_table_count}."
+
+[[ "${scan_service_tier_column_count}" == "2" ]] \
+    || fail "Expected service_tier on scan_policies and scan_executions."
+
+[[ "${scan_service_tier_not_null_count}" == "2" ]] \
+    || fail "scan_policies.service_tier and scan_executions.service_tier must both be NOT NULL."
+
+[[ "${scan_policy_execution_node_column_count}" == "0" ]] \
+    || fail "scan_policies must not contain execution_node_id."
+
+[[ "${scan_tenant_asset_fk_table_count}" == "3" ]] \
+    || fail "Expected tenant-scoped asset foreign keys on all 3 scan-coordination asset tables, found ${scan_tenant_asset_fk_table_count}."
+
+[[ "${scan_active_execution_index_count}" == "1" ]] \
+    || fail "Partial unique active-execution index is missing or incorrect."
+
+echo "  scan_tables:      ${scan_coordination_table_count}"
+echo "  scan_node_creds:  ${scan_node_credential_table_count}"
+echo "  scan_policy_node: ${scan_policy_execution_node_column_count}"
+echo "  scan_asset_fks:   ${scan_tenant_asset_fk_table_count}"
+echo "  scan_active_idx:  ${scan_active_execution_index_count}"
 
 [[ "${finding_class_count}" == "${EXPECTED_FINDING_CLASSES}" ]] \
     || fail "Expected ${EXPECTED_FINDING_CLASSES} finding classes, found ${finding_class_count}."
