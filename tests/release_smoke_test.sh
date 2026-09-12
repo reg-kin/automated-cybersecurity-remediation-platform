@@ -189,6 +189,7 @@ REGRESSION_TESTS=(
     "tests/test_wazuh_indexer_tls_configuration.py"
     "tests/test_wazuh_integration_redis_configuration.py"
     "tests/test_openvas_normalization.py"
+    "tests/test_scan_policy_scheduling.py"
 )
 
 for test_file in "${REGRESSION_TESTS[@]}"; do
