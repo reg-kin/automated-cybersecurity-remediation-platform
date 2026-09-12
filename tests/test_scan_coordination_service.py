@@ -26,6 +26,7 @@ from scan_coordination.service import (
     expire_overdue_leases,
     lease_next_execution,
     mark_execution_started,
+    renew_execution_lease,
     mark_execution_succeeded,
     select_execution_node,
 )
@@ -525,6 +526,32 @@ def main():
         )
 
         # --------------------------------------------------------------
+        # Lease renewal is valid only after execution is RUNNING.
+        # --------------------------------------------------------------
+        leased_renewal_blocked = False
+
+        try:
+            with conn:
+                renew_execution_lease(
+                    conn,
+                    scan_execution_id=execution_id,
+                    node_code=(
+                        "scan-coord-service-nmap-a"
+                    ),
+                    lease_token=lease_token,
+                    lease_seconds=600,
+                )
+        except ScanCoordinationConflictError:
+            leased_renewal_blocked = True
+
+        assert leased_renewal_blocked is True
+
+        print(
+            "PASS: LEASED execution cannot renew "
+            "before entering RUNNING state"
+        )
+
+        # --------------------------------------------------------------
         # Valid start and successful completion.
         # --------------------------------------------------------------
         with conn:
@@ -543,6 +570,109 @@ def main():
         print(
             "PASS: valid lease transitions execution "
             "from LEASED to RUNNING"
+        )
+
+        # --------------------------------------------------------------
+        # RUNNING lease renewal requires the current node and token.
+        # --------------------------------------------------------------
+        original_lease_expires_at = started[
+            "lease_expires_at"
+        ]
+
+        with conn:
+            renewed = renew_execution_lease(
+                conn,
+                scan_execution_id=execution_id,
+                node_code=(
+                    "scan-coord-service-nmap-a"
+                ),
+                lease_token=lease_token,
+                lease_seconds=600,
+            )
+
+        assert renewed["status"] == "RUNNING"
+        assert (
+            renewed["lease_expires_at"]
+            > original_lease_expires_at
+        )
+
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        status,
+                        lease_expires_at,
+                        lease_token_hash
+                    FROM scan_executions
+                    WHERE scan_execution_id = %s
+                    """,
+                    (execution_id,),
+                )
+
+                renewed_state = cur.fetchone()
+
+        assert renewed_state[0] == "RUNNING"
+        assert (
+            renewed_state[1]
+            == renewed["lease_expires_at"]
+        )
+
+        expected_lease_token_hash = hashlib.sha256(
+            lease_token.encode("utf-8")
+        ).hexdigest()
+
+        assert (
+            renewed_state[2]
+            == expected_lease_token_hash
+        )
+
+        print(
+            "PASS: valid RUNNING lease can be renewed "
+            "without changing execution state or credential"
+        )
+
+        wrong_renew_node_blocked = False
+
+        try:
+            with conn:
+                renew_execution_lease(
+                    conn,
+                    scan_execution_id=execution_id,
+                    node_code=(
+                        "scan-coord-service-nmap-b"
+                    ),
+                    lease_token=lease_token,
+                    lease_seconds=600,
+                )
+        except ScanLeaseAuthenticationError:
+            wrong_renew_node_blocked = True
+
+        assert wrong_renew_node_blocked is True
+
+        wrong_renew_token_blocked = False
+
+        try:
+            with conn:
+                renew_execution_lease(
+                    conn,
+                    scan_execution_id=execution_id,
+                    node_code=(
+                        "scan-coord-service-nmap-a"
+                    ),
+                    lease_token=(
+                        "incorrect-lease-token"
+                    ),
+                    lease_seconds=600,
+                )
+        except ScanLeaseAuthenticationError:
+            wrong_renew_token_blocked = True
+
+        assert wrong_renew_token_blocked is True
+
+        print(
+            "PASS: RUNNING lease renewal requires both "
+            "assigned node identity and matching bearer token"
         )
 
         with conn:
@@ -614,6 +744,29 @@ def main():
         print(
             "PASS: completed execution rejects stale "
             "duplicate terminal reports"
+        )
+
+        terminal_renewal_blocked = False
+
+        try:
+            with conn:
+                renew_execution_lease(
+                    conn,
+                    scan_execution_id=execution_id,
+                    node_code=(
+                        "scan-coord-service-nmap-a"
+                    ),
+                    lease_token=lease_token,
+                    lease_seconds=600,
+                )
+        except ScanCoordinationConflictError:
+            terminal_renewal_blocked = True
+
+        assert terminal_renewal_blocked is True
+
+        print(
+            "PASS: terminal execution rejects "
+            "lease renewal"
         )
 
         # --------------------------------------------------------------
@@ -790,6 +943,7 @@ def main():
                     (retry_id,),
                 )
 
+        with conn:
             result = expire_overdue_leases(
                 conn
             )
@@ -914,6 +1068,32 @@ def main():
                     (running_id,),
                 )
 
+        expired_renewal_blocked = False
+
+        try:
+            with conn:
+                renew_execution_lease(
+                    conn,
+                    scan_execution_id=running_id,
+                    node_code=(
+                        "scan-coord-service-nmap-a"
+                    ),
+                    lease_token=(
+                        running_lease["lease_token"]
+                    ),
+                    lease_seconds=600,
+                )
+        except ScanLeaseExpiredError:
+            expired_renewal_blocked = True
+
+        assert expired_renewal_blocked is True
+
+        print(
+            "PASS: expired RUNNING lease cannot "
+            "be resurrected by renewal"
+        )
+
+        with conn:
             result = expire_overdue_leases(
                 conn
             )

@@ -360,7 +360,7 @@ def main():
         client = app.test_client()
 
         # --------------------------------------------------------------
-        # 1. Health is loopback-service health, not an authenticated
+        # Health is loopback-service health, not an authenticated
         #    execution operation.
         # --------------------------------------------------------------
         response = client.get(
@@ -379,7 +379,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 2. Protected endpoints authenticate before payload validation.
+        # Protected endpoints authenticate before payload validation.
         # --------------------------------------------------------------
         response = client.post(
             "/agent/jobs/lease",
@@ -420,7 +420,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 3. Authenticated malformed JSON shape maps to validation error.
+        # Authenticated malformed JSON shape maps to validation error.
         # --------------------------------------------------------------
         response = client.post(
             "/agent/jobs/lease",
@@ -443,7 +443,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 4. Caller-controlled node identity is forbidden.
+        # Caller-controlled node identity is forbidden.
         # --------------------------------------------------------------
         response = client.post(
             "/agent/jobs/lease",
@@ -468,7 +468,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 5. Node B cannot see Node A's pending execution.
+        # Node B cannot see Node A's pending execution.
         # --------------------------------------------------------------
         response = client.post(
             "/agent/jobs/lease",
@@ -504,7 +504,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 6. Correct node leases its assigned execution.
+        # Correct node leases its assigned execution.
         # --------------------------------------------------------------
         response = client.post(
             "/agent/jobs/lease",
@@ -603,7 +603,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 7. Active execution cannot be leased a second time.
+        # Active execution cannot be leased a second time.
         # --------------------------------------------------------------
         response = client.post(
             "/agent/jobs/lease",
@@ -622,7 +622,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 8. Another authenticated node cannot start the execution.
+        # Another authenticated node cannot start the execution.
         # --------------------------------------------------------------
         response = client.post(
             (
@@ -647,7 +647,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 9. Correct node with wrong lease token is rejected.
+        # Correct node with wrong lease token is rejected.
         # --------------------------------------------------------------
         response = client.post(
             (
@@ -671,7 +671,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 10. Correct node + correct lease transitions to RUNNING.
+        # Correct node + correct lease transitions to RUNNING.
         # --------------------------------------------------------------
         response = client.post(
             (
@@ -710,7 +710,162 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 11. Complete endpoint cannot carry finding/risk/remediation data.
+        # RUNNING lease can be renewed by its authenticated owner.
+        # --------------------------------------------------------------
+        with setup_conn:
+            with setup_conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        lease_expires_at,
+                        lease_token_hash
+                    FROM scan_executions
+                    WHERE scan_execution_id = %s
+                    """,
+                    (first_execution_id,),
+                )
+
+                before_renewal = cur.fetchone()
+
+        response = client.post(
+            (
+                f"/agent/jobs/{first_execution_id}"
+                "/renew"
+            ),
+            headers=node_a_headers,
+            json={
+                "lease_token": lease_token,
+                "lease_seconds": 600,
+            },
+        )
+
+        assert response.status_code == 200
+
+        body = response.get_json()
+
+        assert body["success"] is True
+        assert (
+            body["execution"]["scan_execution_id"]
+            == first_execution_id
+        )
+        assert (
+            body["execution"]["status"]
+            == "RUNNING"
+        )
+
+        with setup_conn:
+            with setup_conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        status,
+                        lease_expires_at,
+                        lease_token_hash
+                    FROM scan_executions
+                    WHERE scan_execution_id = %s
+                    """,
+                    (first_execution_id,),
+                )
+
+                after_renewal = cur.fetchone()
+
+        assert after_renewal[0] == "RUNNING"
+        assert (
+            after_renewal[1]
+            > before_renewal[0]
+        )
+        assert (
+            after_renewal[2]
+            == before_renewal[1]
+        )
+
+        passed(
+            "authenticated RUNNING lease renewal extends expiry "
+            "without rotating the execution credential"
+        )
+
+        # --------------------------------------------------------------
+        # Renewal rejects caller-controlled node identity.
+        # --------------------------------------------------------------
+        response = client.post(
+            (
+                f"/agent/jobs/{first_execution_id}"
+                "/renew"
+            ),
+            headers=node_a_headers,
+            json={
+                "lease_token": lease_token,
+                "lease_seconds": 600,
+                "node_code": NODE_B,
+            },
+        )
+
+        body = assert_error(
+            response,
+            status_code=400,
+            code="SCAN_COORDINATION_VALIDATION_ERROR",
+        )
+
+        assert "node_code" in body["error"]
+
+        passed(
+            "renewal rejects caller-controlled execution-node identity"
+        )
+
+        # --------------------------------------------------------------
+        # Another authenticated node cannot renew the lease.
+        # --------------------------------------------------------------
+        response = client.post(
+            (
+                f"/agent/jobs/{first_execution_id}"
+                "/renew"
+            ),
+            headers=node_b_headers,
+            json={
+                "lease_token": lease_token,
+                "lease_seconds": 600,
+            },
+        )
+
+        assert_error(
+            response,
+            status_code=403,
+            code="SCAN_LEASE_AUTHENTICATION_ERROR",
+        )
+
+        passed(
+            "renewal requires the authenticated node "
+            "that owns the execution lease"
+        )
+
+        # --------------------------------------------------------------
+        # Correct node with wrong lease token cannot renew.
+        # --------------------------------------------------------------
+        response = client.post(
+            (
+                f"/agent/jobs/{first_execution_id}"
+                "/renew"
+            ),
+            headers=node_a_headers,
+            json={
+                "lease_token": "wrong-lease-token",
+                "lease_seconds": 600,
+            },
+        )
+
+        assert_error(
+            response,
+            status_code=403,
+            code="SCAN_LEASE_AUTHENTICATION_ERROR",
+        )
+
+        passed(
+            "renewal independently enforces the "
+            "per-execution lease credential"
+        )
+
+        # --------------------------------------------------------------
+        # Complete endpoint cannot carry finding/risk/remediation data.
         # --------------------------------------------------------------
         response = client.post(
             (
@@ -756,7 +911,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 12. Completion status is deliberately narrow.
+        # Completion status is deliberately narrow.
         # --------------------------------------------------------------
         response = client.post(
             (
@@ -781,7 +936,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 13. Successful completion clears the execution lease credential.
+        # Successful completion clears the execution lease credential.
         # --------------------------------------------------------------
         response = client.post(
             (
@@ -852,7 +1007,32 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 14. Stale duplicate completion cannot overwrite terminal state.
+        # Terminal execution cannot renew its former lease.
+        # --------------------------------------------------------------
+        response = client.post(
+            (
+                f"/agent/jobs/{first_execution_id}"
+                "/renew"
+            ),
+            headers=node_a_headers,
+            json={
+                "lease_token": lease_token,
+                "lease_seconds": 600,
+            },
+        )
+
+        assert_error(
+            response,
+            status_code=409,
+            code="SCAN_COORDINATION_CONFLICT",
+        )
+
+        passed(
+            "terminal execution rejects stale lease renewal"
+        )
+
+        # --------------------------------------------------------------
+        # Stale duplicate completion cannot overwrite terminal state.
         # --------------------------------------------------------------
         response = client.post(
             (
@@ -882,7 +1062,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 15. FAILED completion path preserves failure diagnostics.
+        # FAILED completion path preserves failure diagnostics.
         # --------------------------------------------------------------
         with setup_conn:
             second_execution_id = create_pending_execution(
@@ -990,7 +1170,7 @@ def main():
         )
 
         # --------------------------------------------------------------
-        # 16. Non-existent execution maps to 404.
+        # Non-existent execution maps to 404.
         # --------------------------------------------------------------
         response = client.post(
             (
@@ -1013,8 +1193,30 @@ def main():
             "missing scan execution maps to HTTP 404"
         )
 
+        response = client.post(
+            (
+                "/agent/jobs/9223372036854775807"
+                "/renew"
+            ),
+            headers=node_a_headers,
+            json={
+                "lease_token": "unused-token",
+                "lease_seconds": 600,
+            },
+        )
+
+        assert_error(
+            response,
+            status_code=404,
+            code="SCAN_EXECUTION_NOT_FOUND",
+        )
+
+        passed(
+            "missing scan execution renewal maps to HTTP 404"
+        )
+
         # --------------------------------------------------------------
-        # 17. Expired lease maps distinctly to 409.
+        # Expired lease maps distinctly to 409.
         # --------------------------------------------------------------
         with setup_conn:
             third_execution_id = create_pending_execution(
@@ -1044,6 +1246,45 @@ def main():
             "lease_token"
         ]
 
+        response = client.post(
+            (
+                f"/agent/jobs/{third_execution_id}"
+                "/renew"
+            ),
+            headers=node_a_headers,
+            json={
+                "lease_token": third_lease_token,
+                "lease_seconds": 600,
+            },
+        )
+
+        assert_error(
+            response,
+            status_code=409,
+            code="SCAN_COORDINATION_CONFLICT",
+        )
+
+        passed(
+            "LEASED execution cannot renew before entering RUNNING"
+        )
+
+        response = client.post(
+            (
+                f"/agent/jobs/{third_execution_id}"
+                "/start"
+            ),
+            headers=node_a_headers,
+            json={
+                "lease_token": third_lease_token,
+            },
+        )
+
+        assert response.status_code == 200
+        assert (
+            response.get_json()["execution"]["status"]
+            == "RUNNING"
+        )
+
         with setup_conn:
             with setup_conn.cursor() as cur:
                 cur.execute(
@@ -1062,11 +1303,12 @@ def main():
         response = client.post(
             (
                 f"/agent/jobs/{third_execution_id}"
-                "/start"
+                "/renew"
             ),
             headers=node_a_headers,
             json={
                 "lease_token": third_lease_token,
+                "lease_seconds": 600,
             },
         )
 
@@ -1076,12 +1318,31 @@ def main():
             code="SCAN_LEASE_EXPIRED",
         )
 
+        with setup_conn:
+            with setup_conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        status,
+                        lease_token_hash
+                    FROM scan_executions
+                    WHERE scan_execution_id = %s
+                    """,
+                    (third_execution_id,),
+                )
+
+                expired_running = cur.fetchone()
+
+        assert expired_running[0] == "RUNNING"
+        assert expired_running[1] is not None
+
         passed(
-            "expired execution lease maps distinctly to HTTP 409"
+            "expired RUNNING lease renewal maps distinctly to HTTP 409 "
+            "without resurrecting or mutating execution state"
         )
 
         # --------------------------------------------------------------
-        # 18. Bearer credential establishes node activity in PostgreSQL.
+        # Bearer credential establishes node activity in PostgreSQL.
         # --------------------------------------------------------------
         with setup_conn:
             with setup_conn.cursor() as cur:

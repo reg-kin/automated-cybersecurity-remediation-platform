@@ -6,6 +6,7 @@ This API exposes only the execution-node pull plane:
 
     POST /agent/jobs/lease
     POST /agent/jobs/<scan_execution_id>/start
+    POST /agent/jobs/<scan_execution_id>/renew
     POST /agent/jobs/<scan_execution_id>/complete
 
 Execution-node identity is derived exclusively from the authenticated
@@ -60,6 +61,7 @@ from scan_coordination.service import (
     mark_execution_failed,
     mark_execution_started,
     mark_execution_succeeded,
+    renew_execution_lease,
 )
 
 
@@ -85,6 +87,11 @@ LEASE_FIELDS = {
 
 START_FIELDS = {
     "lease_token",
+}
+
+RENEW_FIELDS = {
+    "lease_token",
+    "lease_seconds",
 }
 
 COMPLETE_FIELDS = {
@@ -401,6 +408,84 @@ def start_job(scan_execution_id):
     except Exception:
         app.logger.exception(
             "Scan execution start request failed"
+        )
+
+        return jsonify(
+            {
+                "success": False,
+                "error": "Internal server error",
+            }
+        ), 500
+
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+@app.post(
+    "/agent/jobs/<int:scan_execution_id>/renew"
+)
+def renew_job(scan_execution_id):
+    conn = None
+
+    try:
+        conn = db.connect()
+
+        with conn:
+            authenticated_node = authenticate_request_node(
+                conn
+            )
+
+            payload = require_json_object()
+
+            reject_unknown_fields(
+                payload,
+                RENEW_FIELDS,
+            )
+
+            lease_token = require_field(
+                payload,
+                "lease_token",
+            )
+
+            lease_seconds = payload.get(
+                "lease_seconds",
+                DEFAULT_LEASE_SECONDS,
+            )
+
+            result = renew_execution_lease(
+                conn,
+                scan_execution_id=scan_execution_id,
+                node_code=authenticated_node[
+                    "node_code"
+                ],
+                lease_token=lease_token,
+                lease_seconds=lease_seconds,
+            )
+
+        return jsonify(
+            {
+                "success": True,
+                "execution": result,
+            }
+        ), 200
+
+    except ScanNodeAuthenticationError:
+        return unauthorised_response()
+
+    except (
+        ScanCoordinationValidationError,
+        ScanNodeAuthValidationError,
+        ScanCoordinationNotFoundError,
+        ScanLeaseAuthenticationError,
+        ScanLeaseExpiredError,
+        ScanCoordinationConflictError,
+    ) as exc:
+        return error_response(exc)
+
+    except Exception:
+        app.logger.exception(
+            "Scan execution lease renewal request failed"
         )
 
         return jsonify(

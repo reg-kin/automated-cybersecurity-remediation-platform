@@ -782,6 +782,9 @@ python3 tests/test_scan_coordination_agent_api.py \
 python3 tests/test_scan_execution_scanner_adapters.py \
     || fail "Scan execution scanner-adapter regression failed."
 
+python3 tests/test_scan_execution_agent.py \
+    || fail "Scan execution agent regression failed."
+
 
 python3 tests/test_remediation_dispatcher.py \
     || fail "Remediation dispatcher regression failed."

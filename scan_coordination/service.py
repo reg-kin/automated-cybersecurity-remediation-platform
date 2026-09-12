@@ -844,6 +844,64 @@ def mark_execution_started(
         "lease_expires_at": row[1],
     }
 
+def renew_execution_lease(
+    conn,
+    *,
+    scan_execution_id: int,
+    node_code: str,
+    lease_token: str,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+) -> dict:
+    """Renew the active lease for one RUNNING execution.
+
+    Renewal is allowed only while the current lease is still valid and
+    only for the execution node holding the current lease credential.
+    """
+
+    lease_seconds = _require_lease_seconds(
+        lease_seconds
+    )
+
+    state = _lock_execution_for_lease_transition(
+        conn,
+        scan_execution_id=scan_execution_id,
+        node_code=node_code,
+        lease_token=lease_token,
+        required_status="RUNNING",
+    )
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE scan_executions
+            SET
+                lease_expires_at =
+                    now() + (%s * interval '1 second')
+            WHERE scan_execution_id = %s
+              AND status = 'RUNNING'
+            RETURNING lease_expires_at
+            """,
+            (
+                lease_seconds,
+                state["scan_execution_id"],
+            ),
+        )
+
+        row = cur.fetchone()
+
+    if row is None:
+        raise ScanCoordinationConflictError(
+            f"Execution {scan_execution_id} "
+            "could not have its lease renewed"
+        )
+
+    return {
+        "scan_execution_id": state[
+            "scan_execution_id"
+        ],
+        "status": "RUNNING",
+        "lease_expires_at": row[0],
+    }
 
 def mark_execution_succeeded(
     conn,
