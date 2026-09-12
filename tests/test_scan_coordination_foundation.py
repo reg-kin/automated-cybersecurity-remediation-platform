@@ -135,6 +135,7 @@ def create_policy(
     tenant_code,
     asset_id,
     scanner_type="nmap_nse",
+    service_tier="STANDARD",
     profile_name="default",
     schedule_type="CRON",
     schedule_expression="0 * * * *",
@@ -146,17 +147,19 @@ def create_policy(
                 tenant_code,
                 asset_id,
                 scanner_type,
+                service_tier,
                 profile_name,
                 schedule_type,
                 schedule_expression
             )
-            VALUES (%s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING scan_policy_id
             """,
             (
                 tenant_code,
                 asset_id,
                 scanner_type,
+                service_tier,
                 profile_name,
                 schedule_type,
                 schedule_expression,
@@ -174,6 +177,7 @@ def create_execution(
     asset_id,
     node_id,
     scanner_type="nmap_nse",
+    service_tier="STANDARD",
     execution_model="REMOTE_TARGET",
     subject_type="IP_ADDRESS",
     subject_value="192.0.2.10",
@@ -187,6 +191,7 @@ def create_execution(
                 tenant_code,
                 asset_id,
                 scanner_type,
+                service_tier,
                 execution_node_id,
                 execution_model,
                 scanner_subject_type,
@@ -195,6 +200,7 @@ def create_execution(
                 scheduled_for
             )
             VALUES (
+                %s,
                 %s,
                 %s,
                 %s,
@@ -213,6 +219,7 @@ def create_execution(
                 tenant_code,
                 asset_id,
                 scanner_type,
+                service_tier,
                 node_id,
                 execution_model,
                 subject_type,
@@ -473,6 +480,27 @@ def main():
             "PASS: scan policy can reference its tenant-scoped canonical asset"
         )
 
+        # ------------------------------------------------------------------
+        # Service tier is constrained to the canonical scanner vocabulary.
+        # ------------------------------------------------------------------
+
+        def invalid_service_tier():
+            with conn:
+                create_policy(
+                    conn,
+                    tenant_code=TENANT_A,
+                    asset_id=asset_a,
+                    scanner_type="nmap_nse",
+                    service_tier="PLATINUM",
+                    profile_name="invalid-service-tier",
+                )
+
+        expect_integrity_error(invalid_service_tier)
+
+        print(
+            "PASS: scan policy rejects unsupported service tiers"
+        )
+
         def cross_tenant_policy():
             with conn:
                 create_policy(
@@ -608,6 +636,7 @@ def main():
                         execution_model,
                         scanner_subject_type,
                         scanner_subject_value,
+                        service_tier,
                         status
                     FROM scan_executions
                     WHERE scan_execution_id = %s
@@ -622,12 +651,13 @@ def main():
             "REMOTE_TARGET",
             "IP_ADDRESS",
             "192.0.2.10",
+            "STANDARD",
             "PENDING",
         )
 
         print(
-            "PASS: scan execution preserves node, execution model and "
-            "resolved scanner subject"
+            "PASS: scan execution preserves node, execution model, "
+            "resolved scanner subject and service tier"
         )
 
         # ------------------------------------------------------------------

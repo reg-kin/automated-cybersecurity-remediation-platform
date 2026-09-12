@@ -183,6 +183,7 @@ def create_fixture(conn):
                 tenant_code,
                 asset_id,
                 scanner_type,
+                service_tier,
                 profile_name,
                 scanner_parameters,
                 schedule_type,
@@ -195,6 +196,7 @@ def create_fixture(conn):
                 %s,
                 %s,
                 'nmap_nse',
+                'GOLD',
                 'agent-api-test',
                 '{"scan_mode":"safe"}'::jsonb,
                 'MANUAL',
@@ -235,6 +237,7 @@ def create_pending_execution(
                 tenant_code,
                 asset_id,
                 scanner_type,
+                service_tier,
                 execution_node_id,
                 execution_model,
                 scanner_subject_type,
@@ -248,6 +251,7 @@ def create_pending_execution(
                 %s,
                 %s,
                 'nmap_nse',
+                'GOLD',
                 %s,
                 'REMOTE_TARGET',
                 'IP_ADDRESS',
@@ -553,6 +557,7 @@ def main():
         assert job["scanner_parameters"] == {
             "scan_mode": "safe",
         }
+        assert job["service_tier"] == "GOLD"
         assert job["status"] == "LEASED"
         assert job["lease_token"]
 

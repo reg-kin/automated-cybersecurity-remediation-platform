@@ -54,6 +54,7 @@ SQL_FILES=(
     "database/migrations/017_scan_coordination.sql"
     "database/migrations/018_scan_execution_lease_safety.sql"
     "database/migrations/019_scan_execution_node_authentication.sql"
+    "database/migrations/020_scan_execution_context.sql"
 )
 
 cleanup() {
@@ -1055,6 +1056,43 @@ scan_node_credential_table_count="$(
         "
 )"
 
+scan_service_tier_column_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND column_name = 'service_tier'
+          AND table_name IN (
+              'scan_policies',
+              'scan_executions'
+          );
+        "
+)"
+
+scan_service_tier_not_null_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND column_name = 'service_tier'
+          AND table_name IN (
+              'scan_policies',
+              'scan_executions'
+          )
+          AND is_nullable = 'NO';
+        "
+)"
+
 scan_policy_execution_node_column_count="$(
     docker exec -i "${PG_CONTAINER}" \
         psql \
@@ -1126,6 +1164,12 @@ scan_active_execution_index_count="$(
 
 [[ "${scan_node_credential_table_count}" == "1" ]] \
     || fail "Expected exactly one scan execution-node credential table, found ${scan_node_credential_table_count}."
+
+[[ "${scan_service_tier_column_count}" == "2" ]] \
+    || fail "Expected service_tier on scan_policies and scan_executions."
+
+[[ "${scan_service_tier_not_null_count}" == "2" ]] \
+    || fail "scan_policies.service_tier and scan_executions.service_tier must both be NOT NULL."
 
 [[ "${scan_policy_execution_node_column_count}" == "0" ]] \
     || fail "scan_policies must not contain execution_node_id."

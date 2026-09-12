@@ -197,6 +197,7 @@ def create_policy(
     asset_id,
     scanner_type,
     profile_name,
+    service_tier="GOLD",
 ):
     with conn.cursor() as cur:
         cur.execute(
@@ -205,6 +206,7 @@ def create_policy(
                 tenant_code,
                 asset_id,
                 scanner_type,
+                service_tier,
                 profile_name,
                 scanner_parameters,
                 schedule_type,
@@ -213,6 +215,7 @@ def create_policy(
                 is_enabled
             )
             VALUES (
+                %s,
                 %s,
                 %s,
                 %s,
@@ -229,6 +232,7 @@ def create_policy(
                 TENANT,
                 asset_id,
                 scanner_type,
+                service_tier,
                 profile_name,
             ),
         )
@@ -357,6 +361,35 @@ def main():
             == {"safe_test": True}
         )
 
+        assert execution["service_tier"] == "GOLD"
+
+        # service_tier is execution context, not a live policy lookup.
+        # Changing the policy after execution creation must not rewrite
+        # the historical execution snapshot.
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE scan_policies
+                    SET service_tier = 'BRONZE'
+                    WHERE scan_policy_id = %s
+                    """,
+                    (policy_id,),
+                )
+
+                cur.execute(
+                    """
+                    SELECT service_tier
+                    FROM scan_executions
+                    WHERE scan_execution_id = %s
+                    """,
+                    (execution_id,),
+                )
+
+                stored_execution_tier = cur.fetchone()[0]
+
+        assert stored_execution_tier == "GOLD"
+
         print(
             "PASS: scan execution snapshots policy, "
             "selected node and resolved scanner subject"
@@ -407,6 +440,7 @@ def main():
             == execution_id
         )
         assert leased["status"] == "LEASED"
+        assert leased["service_tier"] == "GOLD"
 
         lease_token = leased["lease_token"]
 
@@ -965,6 +999,7 @@ def main():
                         tenant_code,
                         asset_id,
                         scanner_type,
+                        service_tier,
                         profile_name,
                         scanner_parameters,
                         schedule_type,
@@ -976,6 +1011,7 @@ def main():
                         %s,
                         %s,
                         'nmap_nse',
+                        'STANDARD',
                         'rollback-test',
                         '{}'::jsonb,
                         'MANUAL',
