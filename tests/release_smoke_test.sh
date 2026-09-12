@@ -53,6 +53,7 @@ SQL_FILES=(
     "database/migrations/016_asset_remediation_readiness.sql"
     "database/migrations/017_scan_coordination.sql"
     "database/migrations/018_scan_execution_lease_safety.sql"
+    "database/migrations/019_scan_execution_node_authentication.sql"
 )
 
 cleanup() {
@@ -760,6 +761,15 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_scan_coordination_service.py \
     || fail "Scan coordination service regression failed."
 
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_scan_execution_node_authentication.py \
+    || fail "Scan execution-node authentication regression failed."
+
 python3 tests/test_remediation_dispatcher.py \
     || fail "Remediation dispatcher regression failed."
 
@@ -1022,6 +1032,20 @@ scan_coordination_table_count="$(
         "
 )"
 
+scan_node_credential_table_count="$(
+    docker exec -i "${PG_CONTAINER}" \
+        psql \
+        -U "${PG_USER}" \
+        -d "${TEST_DB}" \
+        -At \
+        -c "
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'scan_execution_node_credentials';
+        "
+)"
+
 scan_policy_execution_node_column_count="$(
     docker exec -i "${PG_CONTAINER}" \
         psql \
@@ -1091,6 +1115,9 @@ scan_active_execution_index_count="$(
 [[ "${scan_coordination_table_count}" == "5" ]] \
     || fail "Expected 5 scan-coordination tables, found ${scan_coordination_table_count}."
 
+[[ "${scan_node_credential_table_count}" == "1" ]] \
+    || fail "Expected exactly one scan execution-node credential table, found ${scan_node_credential_table_count}."
+
 [[ "${scan_policy_execution_node_column_count}" == "0" ]] \
     || fail "scan_policies must not contain execution_node_id."
 
@@ -1101,6 +1128,7 @@ scan_active_execution_index_count="$(
     || fail "Partial unique active-execution index is missing or incorrect."
 
 echo "  scan_tables:      ${scan_coordination_table_count}"
+echo "  scan_node_creds:  ${scan_node_credential_table_count}"
 echo "  scan_policy_node: ${scan_policy_execution_node_column_count}"
 echo "  scan_asset_fks:   ${scan_tenant_asset_fk_table_count}"
 echo "  scan_active_idx:  ${scan_active_execution_index_count}"
