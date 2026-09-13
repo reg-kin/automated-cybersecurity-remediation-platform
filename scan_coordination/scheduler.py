@@ -20,15 +20,30 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from scan_coordination.scheduling import next_cron_occurrence
-from scan_coordination.service import create_scan_execution
-from scan_coordination.subject_resolver import resolve_scanner_subject
+from scan_coordination.scheduling import (
+    ScheduleValidationError,
+    next_cron_occurrence,
+)
+from scan_coordination.service import (
+    ScanCoordinationConflictError,
+    create_scan_execution,
+)
+from scan_coordination.subject_resolver import (
+    ScanSubjectResolutionError,
+    resolve_scanner_subject,
+)
 
 
 ACTIVE_EXECUTION_STATUSES = (
     "PENDING",
     "LEASED",
     "RUNNING",
+)
+
+POLICY_LOCAL_SCHEDULER_ERRORS = (
+    ScheduleValidationError,
+    ScanSubjectResolutionError,
+    ScanCoordinationConflictError,
 )
 
 
@@ -40,7 +55,11 @@ class ScanSchedulerStateError(ScanSchedulerError):
     """Raised when persisted scheduler state violates scheduler invariants."""
 
 
-def _load_next_uninitialised_policy(conn) -> dict[str, Any] | None:
+def _load_next_uninitialised_policy(
+    conn,
+    *,
+    excluded_policy_ids: set[int] | None = None,
+) -> dict[str, Any] | None:
     """Lock one enabled CRON policy whose next_run_at is not initialised.
 
     PostgreSQL now() is returned with the policy and is the authoritative
@@ -49,6 +68,8 @@ def _load_next_uninitialised_policy(conn) -> dict[str, Any] | None:
     FOR UPDATE SKIP LOCKED allows multiple scheduler workers to initialise
     different policies safely.
     """
+
+    excluded = sorted(excluded_policy_ids or set())
 
     with conn.cursor() as cur:
         cur.execute(
@@ -62,10 +83,14 @@ def _load_next_uninitialised_policy(conn) -> dict[str, Any] | None:
             WHERE p.is_enabled IS TRUE
               AND p.schedule_type = 'CRON'
               AND p.next_run_at IS NULL
+              AND NOT (
+                    p.scan_policy_id = ANY(%s::bigint[])
+              )
             ORDER BY p.scan_policy_id ASC
             LIMIT 1
             FOR UPDATE OF p SKIP LOCKED
-            """
+            """,
+            (excluded,),
         )
 
         row = cur.fetchone()
@@ -114,7 +139,11 @@ def _set_initial_next_run_at(
             )
 
 
-def initialise_next_scan_policy(conn) -> dict[str, Any] | None:
+def initialise_next_scan_policy(
+    conn,
+    *,
+    excluded_policy_ids: set[int] | None = None,
+) -> dict[str, Any] | None:
     """Initialise one enabled CRON policy whose next_run_at is NULL.
 
     Returns None when no policy currently requires initialisation.
@@ -126,47 +155,61 @@ def initialise_next_scan_policy(conn) -> dict[str, Any] | None:
     stores that absolute occurrence in next_run_at.
     """
 
-    policy = _load_next_uninitialised_policy(conn)
+    policy = _load_next_uninitialised_policy(
+        conn,
+        excluded_policy_ids=excluded_policy_ids,
+    )
 
     if policy is None:
         return None
 
+    scan_policy_id = policy["scan_policy_id"]
     reference_time = policy["reference_time"]
 
-    if not isinstance(reference_time, datetime):
-        raise ScanSchedulerStateError(
-            "Database scheduling reference time must be a datetime"
+    try:
+        if not isinstance(reference_time, datetime):
+            raise ScanSchedulerStateError(
+                "Database scheduling reference time must be a datetime"
+            )
+
+        if (
+            reference_time.tzinfo is None
+            or reference_time.utcoffset() is None
+        ):
+            raise ScanSchedulerStateError(
+                "Database scheduling reference time must be timezone-aware"
+            )
+
+        next_run_at = next_cron_occurrence(
+            policy["schedule_expression"],
+            policy["schedule_timezone"],
+            reference_time,
         )
 
-    if (
-        reference_time.tzinfo is None
-        or reference_time.utcoffset() is None
-    ):
-        raise ScanSchedulerStateError(
-            "Database scheduling reference time must be timezone-aware"
+        _set_initial_next_run_at(
+            conn,
+            scan_policy_id=scan_policy_id,
+            next_run_at=next_run_at,
         )
 
-    next_run_at = next_cron_occurrence(
-        policy["schedule_expression"],
-        policy["schedule_timezone"],
-        reference_time,
-    )
-
-    _set_initial_next_run_at(
-        conn,
-        scan_policy_id=policy["scan_policy_id"],
-        next_run_at=next_run_at,
-    )
+    except POLICY_LOCAL_SCHEDULER_ERRORS as exc:
+        exc.scan_policy_id = scan_policy_id
+        exc.scheduler_operation = "INITIALISE"
+        raise
 
     return {
         "action": "INITIALISED",
-        "scan_policy_id": policy["scan_policy_id"],
+        "scan_policy_id": scan_policy_id,
         "reference_time": reference_time,
         "next_run_at": next_run_at,
     }
 
 
-def _load_next_due_policy(conn) -> dict[str, Any] | None:
+def _load_next_due_policy(
+    conn,
+    *,
+    excluded_policy_ids: set[int] | None = None,
+) -> dict[str, Any] | None:
     """Lock and return one schedulable due CRON policy.
 
     Policies with an active execution are deliberately excluded.
@@ -181,6 +224,8 @@ def _load_next_due_policy(conn) -> dict[str, Any] | None:
     FOR UPDATE SKIP LOCKED allows multiple scheduler workers to select
     different due policies safely.
     """
+
+    excluded = sorted(excluded_policy_ids or set())
 
     with conn.cursor() as cur:
         cur.execute(
@@ -198,6 +243,9 @@ def _load_next_due_policy(conn) -> dict[str, Any] | None:
               AND p.schedule_type = 'CRON'
               AND p.next_run_at IS NOT NULL
               AND p.next_run_at <= now()
+              AND NOT (
+                    p.scan_policy_id = ANY(%s::bigint[])
+              )
               AND NOT EXISTS (
                     SELECT 1
                     FROM scan_executions AS e
@@ -213,7 +261,8 @@ def _load_next_due_policy(conn) -> dict[str, Any] | None:
                 p.scan_policy_id ASC
             LIMIT 1
             FOR UPDATE OF p SKIP LOCKED
-            """
+            """,
+            (excluded,),
         )
 
         row = cur.fetchone()
@@ -328,7 +377,11 @@ def _advance_policy(
             )
 
 
-def schedule_next_due_policy(conn) -> dict[str, Any] | None:
+def schedule_next_due_policy(
+    conn,
+    *,
+    excluded_policy_ids: set[int] | None = None,
+) -> dict[str, Any] | None:
     """Materialise one due CRON policy occurrence.
 
     Returns None when there is currently no schedulable due policy.
@@ -358,7 +411,10 @@ def schedule_next_due_policy(conn) -> dict[str, Any] | None:
     leaves next_run_at unchanged until that execution becomes terminal.
     """
 
-    policy = _load_next_due_policy(conn)
+    policy = _load_next_due_policy(
+        conn,
+        excluded_policy_ids=excluded_policy_ids,
+    )
 
     if policy is None:
         return None
@@ -366,27 +422,58 @@ def schedule_next_due_policy(conn) -> dict[str, Any] | None:
     scan_policy_id = policy["scan_policy_id"]
     scheduled_for = policy["next_run_at"]
 
-    next_run_at = _calculate_following_occurrence(
-        schedule_expression=policy["schedule_expression"],
-        schedule_timezone=policy["schedule_timezone"],
-        scheduled_for=scheduled_for,
-    )
+    try:
+        next_run_at = _calculate_following_occurrence(
+            schedule_expression=policy["schedule_expression"],
+            schedule_timezone=policy["schedule_timezone"],
+            scheduled_for=scheduled_for,
+        )
 
-    existing = _load_existing_occurrence(
-        conn,
-        scan_policy_id=scan_policy_id,
-        scheduled_for=scheduled_for,
-    )
+        existing = _load_existing_occurrence(
+            conn,
+            scan_policy_id=scan_policy_id,
+            scheduled_for=scheduled_for,
+        )
 
-    if existing is not None:
-        if existing["status"] in ACTIVE_EXECUTION_STATUSES:
-            # This should normally be impossible because the due-policy query
-            # excludes policies with active executions. Keep the invariant
-            # explicit in case persisted state changes within future designs.
-            raise ScanSchedulerStateError(
-                f"Scan policy {scan_policy_id} occurrence "
-                f"{scheduled_for.isoformat()} is already active"
+        if existing is not None:
+            if existing["status"] in ACTIVE_EXECUTION_STATUSES:
+                # This should normally be impossible because the due-policy
+                # query excludes policies with active executions. Keep the
+                # invariant explicit in case persisted state changes within
+                # future designs.
+                raise ScanSchedulerStateError(
+                    f"Scan policy {scan_policy_id} occurrence "
+                    f"{scheduled_for.isoformat()} is already active"
+                )
+
+            _advance_policy(
+                conn,
+                scan_policy_id=scan_policy_id,
+                expected_next_run_at=scheduled_for,
+                new_next_run_at=next_run_at,
             )
+
+            return {
+                "action": "ADVANCED_EXISTING",
+                "scan_policy_id": scan_policy_id,
+                "scan_execution_id": existing["scan_execution_id"],
+                "scheduled_for": scheduled_for,
+                "next_run_at": next_run_at,
+                "execution_status": existing["status"],
+            }
+
+        subject = resolve_scanner_subject(
+            conn,
+            scan_policy_id=scan_policy_id,
+        )
+
+        execution = create_scan_execution(
+            conn,
+            scan_policy_id=scan_policy_id,
+            scanner_subject_type=subject["scanner_subject_type"],
+            scanner_subject_value=subject["scanner_subject_value"],
+            scheduled_for=scheduled_for,
+        )
 
         _advance_policy(
             conn,
@@ -395,34 +482,10 @@ def schedule_next_due_policy(conn) -> dict[str, Any] | None:
             new_next_run_at=next_run_at,
         )
 
-        return {
-            "action": "ADVANCED_EXISTING",
-            "scan_policy_id": scan_policy_id,
-            "scan_execution_id": existing["scan_execution_id"],
-            "scheduled_for": scheduled_for,
-            "next_run_at": next_run_at,
-            "execution_status": existing["status"],
-        }
-
-    subject = resolve_scanner_subject(
-        conn,
-        scan_policy_id=scan_policy_id,
-    )
-
-    execution = create_scan_execution(
-        conn,
-        scan_policy_id=scan_policy_id,
-        scanner_subject_type=subject["scanner_subject_type"],
-        scanner_subject_value=subject["scanner_subject_value"],
-        scheduled_for=scheduled_for,
-    )
-
-    _advance_policy(
-        conn,
-        scan_policy_id=scan_policy_id,
-        expected_next_run_at=scheduled_for,
-        new_next_run_at=next_run_at,
-    )
+    except POLICY_LOCAL_SCHEDULER_ERRORS as exc:
+        exc.scan_policy_id = scan_policy_id
+        exc.scheduler_operation = "SCHEDULE"
+        raise
 
     return {
         "action": "CREATED",

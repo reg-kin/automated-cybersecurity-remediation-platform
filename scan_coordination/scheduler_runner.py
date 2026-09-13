@@ -27,6 +27,7 @@ from typing import Dict
 
 from remediation.shared import db
 from scan_coordination.scheduler import (
+    POLICY_LOCAL_SCHEDULER_ERRORS,
     initialise_next_scan_policy,
     schedule_next_due_policy,
 )
@@ -84,13 +85,17 @@ def setup_logging() -> None:
 def run_once(
     batch_size: int,
 ) -> Dict[str, int]:
-    """Process up to batch_size scheduler operations.
+    """Process up to batch_size scheduler policy attempts.
 
     Initialisation is performed before due-occurrence materialisation.
 
-    Each operation receives its own transaction. A successful initialisation
-    or materialisation therefore remains committed if a later operation in the
-    same poll cycle fails.
+    Each policy attempt receives its own transaction. Expected policy-local
+    failures are rolled back, logged and excluded for the remainder of the
+    current poll cycle so one bad policy cannot starve unrelated work.
+
+    Failed policy-local attempts count towards batch_size. Unexpected
+    invariant, database, programming or infrastructure failures propagate and
+    abort the cycle.
     """
 
     if (
@@ -106,18 +111,55 @@ def run_once(
     conn = db.connect()
 
     try:
-        operations = 0
+        attempts = 0
+        initialisation_exclusions: set[int] = set()
+        scheduling_exclusions: set[int] = set()
 
-        while operations < batch_size:
-            with conn:
-                result = initialise_next_scan_policy(
-                    conn
+        while attempts < batch_size:
+            try:
+                with conn:
+                    result = initialise_next_scan_policy(
+                        conn,
+                        excluded_policy_ids=initialisation_exclusions,
+                    )
+
+            except POLICY_LOCAL_SCHEDULER_ERRORS as exc:
+                scan_policy_id = getattr(
+                    exc,
+                    "scan_policy_id",
+                    None,
                 )
+
+                if scan_policy_id is None:
+                    raise
+
+                attempts += 1
+                initialisation_exclusions.add(
+                    scan_policy_id
+                )
+
+                counts["INITIALISATION_FAILED"] = (
+                    counts.get(
+                        "INITIALISATION_FAILED",
+                        0,
+                    )
+                    + 1
+                )
+
+                LOG.error(
+                    "policy=%s action=INITIALISATION_FAILED "
+                    "error_type=%s error=%s",
+                    scan_policy_id,
+                    type(exc).__name__,
+                    exc,
+                )
+
+                continue
 
             if result is None:
                 break
 
-            operations += 1
+            attempts += 1
 
             action = result["action"]
 
@@ -134,16 +176,51 @@ def run_once(
                 result["next_run_at"],
             )
 
-        while operations < batch_size:
-            with conn:
-                result = schedule_next_due_policy(
-                    conn
+        while attempts < batch_size:
+            try:
+                with conn:
+                    result = schedule_next_due_policy(
+                        conn,
+                        excluded_policy_ids=scheduling_exclusions,
+                    )
+
+            except POLICY_LOCAL_SCHEDULER_ERRORS as exc:
+                scan_policy_id = getattr(
+                    exc,
+                    "scan_policy_id",
+                    None,
                 )
+
+                if scan_policy_id is None:
+                    raise
+
+                attempts += 1
+                scheduling_exclusions.add(
+                    scan_policy_id
+                )
+
+                counts["SCHEDULING_FAILED"] = (
+                    counts.get(
+                        "SCHEDULING_FAILED",
+                        0,
+                    )
+                    + 1
+                )
+
+                LOG.error(
+                    "policy=%s action=SCHEDULING_FAILED "
+                    "error_type=%s error=%s",
+                    scan_policy_id,
+                    type(exc).__name__,
+                    exc,
+                )
+
+                continue
 
             if result is None:
                 break
 
-            operations += 1
+            attempts += 1
 
             action = result["action"]
 

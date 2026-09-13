@@ -17,6 +17,8 @@ if str(ROOT) not in sys.path:
 
 
 from scan_coordination.scheduler import (
+    _load_next_due_policy,
+    _load_next_uninitialised_policy,
     initialise_next_scan_policy,
     schedule_next_due_policy,
 )
@@ -524,6 +526,201 @@ def test_policy_initialisation(conn):
                 (invalid_policy,),
             )
 
+    # Cycle-local exclusion skips an earlier uninitialised policy
+    # without modifying it and allows the next eligible policy to proceed.
+    with conn:
+        _, excluded_initialisation_policy = make_nmap_policy(
+            conn,
+            suffix="31",
+            next_run_at=None,
+        )
+        _, selected_initialisation_policy = make_nmap_policy(
+            conn,
+            suffix="32",
+            next_run_at=None,
+        )
+
+    with conn:
+        result = initialise_next_scan_policy(
+            conn,
+            excluded_policy_ids={
+                excluded_initialisation_policy,
+            },
+        )
+
+    assert result is not None
+    assert result["action"] == "INITIALISED"
+    assert (
+        result["scan_policy_id"]
+        == selected_initialisation_policy
+    )
+
+    assert (
+        load_policy_next_run(
+            conn,
+            scan_policy_id=excluded_initialisation_policy,
+        )
+        is None
+    )
+
+    assert (
+        load_policy_next_run(
+            conn,
+            scan_policy_id=selected_initialisation_policy,
+        )
+        == result["next_run_at"]
+    )
+
+    assert load_policy_executions(
+        conn,
+        scan_policy_id=excluded_initialisation_policy,
+    ) == []
+
+    assert load_policy_executions(
+        conn,
+        scan_policy_id=selected_initialisation_policy,
+    ) == []
+
+    print(
+        "PASS: initialisation exclusion selects the next "
+        "eligible policy"
+    )
+
+    clean_database(conn)
+
+
+def test_scheduler_skip_locked_concurrency(conn):
+    """Verify concurrent scheduler sessions skip already locked policies."""
+
+    clean_database(conn)
+
+    # --------------------------------------------------------------
+    # 1. Concurrent initialisation selectors choose different rows.
+    # --------------------------------------------------------------
+    with conn:
+        _, initialisation_policy_1 = make_nmap_policy(
+            conn,
+            suffix="41",
+            next_run_at=None,
+        )
+        _, initialisation_policy_2 = make_nmap_policy(
+            conn,
+            suffix="42",
+            next_run_at=None,
+        )
+
+    conn_a = psycopg2.connect(**PG)
+    conn_b = psycopg2.connect(**PG)
+
+    try:
+        selected_a = _load_next_uninitialised_policy(conn_a)
+
+        assert selected_a is not None
+        assert (
+            selected_a["scan_policy_id"]
+            == initialisation_policy_1
+        )
+
+        # conn_a deliberately remains in its transaction and therefore
+        # continues to hold the row lock on initialisation_policy_1.
+        selected_b = _load_next_uninitialised_policy(conn_b)
+
+        assert selected_b is not None
+        assert (
+            selected_b["scan_policy_id"]
+            == initialisation_policy_2
+        )
+
+        conn_b.rollback()
+        conn_a.rollback()
+
+    finally:
+        conn_b.close()
+        conn_a.close()
+
+    print(
+        "PASS: concurrent initialisation selectors use "
+        "FOR UPDATE SKIP LOCKED"
+    )
+
+    # Neither selector transaction committed a state change.
+    assert (
+        load_policy_next_run(
+            conn,
+            scan_policy_id=initialisation_policy_1,
+        )
+        is None
+    )
+    assert (
+        load_policy_next_run(
+            conn,
+            scan_policy_id=initialisation_policy_2,
+        )
+        is None
+    )
+
+    clean_database(conn)
+
+    # --------------------------------------------------------------
+    # 2. Concurrent due selectors choose different rows.
+    # --------------------------------------------------------------
+    now = datetime.now(timezone.utc)
+
+    due_1 = (
+        now - timedelta(hours=2)
+    ).replace(
+        second=0,
+        microsecond=0,
+    )
+
+    due_2 = (
+        now - timedelta(hours=1)
+    ).replace(
+        second=0,
+        microsecond=0,
+    )
+
+    with conn:
+        _, due_policy_1 = make_nmap_policy(
+            conn,
+            suffix="43",
+            next_run_at=due_1,
+        )
+        _, due_policy_2 = make_nmap_policy(
+            conn,
+            suffix="44",
+            next_run_at=due_2,
+        )
+
+    conn_a = psycopg2.connect(**PG)
+    conn_b = psycopg2.connect(**PG)
+
+    try:
+        selected_a = _load_next_due_policy(conn_a)
+
+        assert selected_a is not None
+        assert selected_a["scan_policy_id"] == due_policy_1
+
+        # conn_a deliberately retains its transaction and row lock.
+        # conn_b must not wait for that row: SKIP LOCKED must cause it
+        # to select the next eligible due policy.
+        selected_b = _load_next_due_policy(conn_b)
+
+        assert selected_b is not None
+        assert selected_b["scan_policy_id"] == due_policy_2
+
+        conn_b.rollback()
+        conn_a.rollback()
+
+    finally:
+        conn_b.close()
+        conn_a.close()
+
+    print(
+        "PASS: concurrent due selectors use "
+        "FOR UPDATE SKIP LOCKED"
+    )
+
     clean_database(conn)
 
 
@@ -532,6 +729,7 @@ def main():
 
     try:
         test_policy_initialisation(conn)
+        test_scheduler_skip_locked_concurrency(conn)
 
         with conn:
             clean_database(conn)
@@ -565,6 +763,87 @@ def main():
             second=0,
             microsecond=0,
         )
+
+        # --------------------------------------------------------------
+        # 0. Cycle-local exclusion skips the oldest due policy.
+        # --------------------------------------------------------------
+        with conn:
+            _, excluded_due_policy = make_nmap_policy(
+                conn,
+                suffix="33",
+                next_run_at=due_1,
+            )
+            _, selected_due_policy = make_nmap_policy(
+                conn,
+                suffix="34",
+                next_run_at=due_2,
+            )
+
+        with conn:
+            result = schedule_next_due_policy(
+                conn,
+                excluded_policy_ids={
+                    excluded_due_policy,
+                },
+            )
+
+        assert result is not None
+        assert result["action"] == "CREATED"
+        assert result["scan_policy_id"] == selected_due_policy
+        assert result["scheduled_for"] == due_2
+
+        # The excluded occurrence remains completely untouched.
+        assert (
+            load_policy_next_run(
+                conn,
+                scan_policy_id=excluded_due_policy,
+            )
+            == due_1
+        )
+        assert load_policy_executions(
+            conn,
+            scan_policy_id=excluded_due_policy,
+        ) == []
+
+        selected_executions = load_policy_executions(
+            conn,
+            scan_policy_id=selected_due_policy,
+        )
+
+        assert len(selected_executions) == 1
+        assert selected_executions[0][1] == "PENDING"
+        assert selected_executions[0][2] == due_2
+
+        print(
+            "PASS: due-policy exclusion selects the next "
+            "eligible occurrence"
+        )
+
+        # Prevent both exclusion-test policies from participating in
+        # the existing sequential scheduler regression cases below.
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE scan_executions
+                    SET status = 'SUCCEEDED'
+                    WHERE scan_policy_id = %s
+                    """,
+                    (selected_due_policy,),
+                )
+
+                cur.execute(
+                    """
+                    UPDATE scan_policies
+                    SET next_run_at = %s
+                    WHERE scan_policy_id IN (%s, %s)
+                    """,
+                    (
+                        future,
+                        excluded_due_policy,
+                        selected_due_policy,
+                    ),
+                )
 
         # --------------------------------------------------------------
         # 1. A due enabled CRON policy creates exactly one execution.
