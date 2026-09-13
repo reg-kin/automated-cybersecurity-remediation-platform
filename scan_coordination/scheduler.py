@@ -40,6 +40,132 @@ class ScanSchedulerStateError(ScanSchedulerError):
     """Raised when persisted scheduler state violates scheduler invariants."""
 
 
+def _load_next_uninitialised_policy(conn) -> dict[str, Any] | None:
+    """Lock one enabled CRON policy whose next_run_at is not initialised.
+
+    PostgreSQL now() is returned with the policy and is the authoritative
+    reference instant for calculating the first scheduled occurrence.
+
+    FOR UPDATE SKIP LOCKED allows multiple scheduler workers to initialise
+    different policies safely.
+    """
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                p.scan_policy_id,
+                p.schedule_expression,
+                p.schedule_timezone,
+                now()
+            FROM scan_policies AS p
+            WHERE p.is_enabled IS TRUE
+              AND p.schedule_type = 'CRON'
+              AND p.next_run_at IS NULL
+            ORDER BY p.scan_policy_id ASC
+            LIMIT 1
+            FOR UPDATE OF p SKIP LOCKED
+            """
+        )
+
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "scan_policy_id": row[0],
+        "schedule_expression": row[1],
+        "schedule_timezone": row[2],
+        "reference_time": row[3],
+    }
+
+
+def _set_initial_next_run_at(
+    conn,
+    *,
+    scan_policy_id: int,
+    next_run_at: datetime,
+) -> None:
+    """Initialise next_run_at while verifying it is still NULL."""
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE scan_policies
+            SET
+                next_run_at = %s,
+                updated_at = now()
+            WHERE scan_policy_id = %s
+              AND is_enabled IS TRUE
+              AND schedule_type = 'CRON'
+              AND next_run_at IS NULL
+            """,
+            (
+                next_run_at,
+                scan_policy_id,
+            ),
+        )
+
+        if cur.rowcount != 1:
+            raise ScanSchedulerStateError(
+                f"Scan policy {scan_policy_id} changed unexpectedly "
+                "while initialising next_run_at"
+            )
+
+
+def initialise_next_scan_policy(conn) -> dict[str, Any] | None:
+    """Initialise one enabled CRON policy whose next_run_at is NULL.
+
+    Returns None when no policy currently requires initialisation.
+
+    The caller owns the transaction.
+
+    Initialisation does not create a scan execution. It calculates the first
+    cron occurrence strictly after PostgreSQL's transaction-time now() and
+    stores that absolute occurrence in next_run_at.
+    """
+
+    policy = _load_next_uninitialised_policy(conn)
+
+    if policy is None:
+        return None
+
+    reference_time = policy["reference_time"]
+
+    if not isinstance(reference_time, datetime):
+        raise ScanSchedulerStateError(
+            "Database scheduling reference time must be a datetime"
+        )
+
+    if (
+        reference_time.tzinfo is None
+        or reference_time.utcoffset() is None
+    ):
+        raise ScanSchedulerStateError(
+            "Database scheduling reference time must be timezone-aware"
+        )
+
+    next_run_at = next_cron_occurrence(
+        policy["schedule_expression"],
+        policy["schedule_timezone"],
+        reference_time,
+    )
+
+    _set_initial_next_run_at(
+        conn,
+        scan_policy_id=policy["scan_policy_id"],
+        next_run_at=next_run_at,
+    )
+
+    return {
+        "action": "INITIALISED",
+        "scan_policy_id": policy["scan_policy_id"],
+        "reference_time": reference_time,
+        "next_run_at": next_run_at,
+    }
+
+
 def _load_next_due_policy(conn) -> dict[str, Any] | None:
     """Lock and return one schedulable due CRON policy.
 

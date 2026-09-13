@@ -26,7 +26,10 @@ import time
 from typing import Dict
 
 from remediation.shared import db
-from scan_coordination.scheduler import schedule_next_due_policy
+from scan_coordination.scheduler import (
+    initialise_next_scan_policy,
+    schedule_next_due_policy,
+)
 
 
 LOG = logging.getLogger(
@@ -81,11 +84,13 @@ def setup_logging() -> None:
 def run_once(
     batch_size: int,
 ) -> Dict[str, int]:
-    """Process up to batch_size schedulable policy occurrences.
+    """Process up to batch_size scheduler operations.
 
-    Each occurrence receives its own transaction. This prevents a failure in a
-    later policy from rolling back executions successfully materialised earlier
-    in the same scheduler cycle.
+    Initialisation is performed before due-occurrence materialisation.
+
+    Each operation receives its own transaction. A successful initialisation
+    or materialisation therefore remains committed if a later operation in the
+    same poll cycle fails.
     """
 
     if (
@@ -101,7 +106,35 @@ def run_once(
     conn = db.connect()
 
     try:
-        for _ in range(batch_size):
+        operations = 0
+
+        while operations < batch_size:
+            with conn:
+                result = initialise_next_scan_policy(
+                    conn
+                )
+
+            if result is None:
+                break
+
+            operations += 1
+
+            action = result["action"]
+
+            counts[action] = (
+                counts.get(action, 0) + 1
+            )
+
+            LOG.info(
+                "policy=%s action=%s "
+                "reference_time=%s next_run_at=%s",
+                result["scan_policy_id"],
+                action,
+                result["reference_time"],
+                result["next_run_at"],
+            )
+
+        while operations < batch_size:
             with conn:
                 result = schedule_next_due_policy(
                     conn
@@ -109,6 +142,8 @@ def run_once(
 
             if result is None:
                 break
+
+            operations += 1
 
             action = result["action"]
 

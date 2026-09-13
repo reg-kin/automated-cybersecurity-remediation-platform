@@ -111,10 +111,20 @@ def test_env_int():
             os.environ[name] = previous
 
 
-def test_run_once_processes_until_no_work():
+def test_run_once_initialises_then_processes_due_work():
     conn = FakeConnection()
 
-    results = [
+    initialisation_results = [
+        {
+            "action": "INITIALISED",
+            "scan_policy_id": 100,
+            "reference_time": "reference",
+            "next_run_at": "future",
+        },
+        None,
+    ]
+
+    scheduling_results = [
         {
             "action": "CREATED",
             "scan_policy_id": 101,
@@ -132,26 +142,33 @@ def test_run_once_processes_until_no_work():
         None,
     ]
 
-    calls = []
+    initialise_calls = []
+    schedule_calls = []
 
-    original_connect = (
-        scheduler_runner.db.connect
+    original_connect = scheduler_runner.db.connect
+    original_initialise = (
+        scheduler_runner.initialise_next_scan_policy
     )
-
     original_schedule = (
-        scheduler_runner
-        .schedule_next_due_policy
+        scheduler_runner.schedule_next_due_policy
     )
 
     try:
-        scheduler_runner.db.connect = (
-            lambda: conn
-        )
+        scheduler_runner.db.connect = lambda: conn
+
+        def fake_initialise(received_conn):
+            assert received_conn is conn
+            initialise_calls.append(True)
+            return initialisation_results.pop(0)
 
         def fake_schedule(received_conn):
             assert received_conn is conn
-            calls.append(True)
-            return results.pop(0)
+            schedule_calls.append(True)
+            return scheduling_results.pop(0)
+
+        scheduler_runner.initialise_next_scan_policy = (
+            fake_initialise
+        )
 
         scheduler_runner.schedule_next_due_policy = (
             fake_schedule
@@ -166,60 +183,74 @@ def test_run_once_processes_until_no_work():
             original_connect
         )
 
+        scheduler_runner.initialise_next_scan_policy = (
+            original_initialise
+        )
+
         scheduler_runner.schedule_next_due_policy = (
             original_schedule
         )
 
     assert summary == {
+        "INITIALISED": 1,
         "CREATED": 1,
         "ADVANCED_EXISTING": 1,
     }
 
-    assert len(calls) == 3
+    assert len(initialise_calls) == 2
+    assert len(schedule_calls) == 3
 
-    # One independent transaction for each scheduler call,
-    # including the final no-work check.
-    assert conn.enter_count == 3
-    assert conn.exit_count == 3
+    # Every initialisation/scheduling operation is an independent
+    # transaction, including each final no-work check.
+    assert conn.enter_count == 5
+    assert conn.exit_count == 5
     assert conn.rollback_exit_count == 0
     assert conn.closed is True
 
 
-def test_run_once_honours_batch_limit():
+def test_run_once_batch_limit_includes_initialisation():
     conn = FakeConnection()
 
-    call_count = 0
+    initialise_calls = 0
+    schedule_calls = 0
 
-    original_connect = (
-        scheduler_runner.db.connect
+    original_connect = scheduler_runner.db.connect
+    original_initialise = (
+        scheduler_runner.initialise_next_scan_policy
     )
-
     original_schedule = (
-        scheduler_runner
-        .schedule_next_due_policy
+        scheduler_runner.schedule_next_due_policy
     )
 
     try:
-        scheduler_runner.db.connect = (
-            lambda: conn
-        )
+        scheduler_runner.db.connect = lambda: conn
 
-        def fake_schedule(received_conn):
-            nonlocal call_count
+        def fake_initialise(received_conn):
+            nonlocal initialise_calls
 
             assert received_conn is conn
 
-            call_count += 1
+            initialise_calls += 1
 
             return {
-                "action": "CREATED",
-                "scan_policy_id": call_count,
-                "scan_execution_id": (
-                    1000 + call_count
-                ),
-                "scheduled_for": "one",
-                "next_run_at": "two",
+                "action": "INITIALISED",
+                "scan_policy_id": initialise_calls,
+                "reference_time": "reference",
+                "next_run_at": "future",
             }
+
+        def fake_schedule(received_conn):
+            nonlocal schedule_calls
+
+            assert received_conn is conn
+
+            schedule_calls += 1
+
+            return None
+
+        scheduler_runner.initialise_next_scan_policy = (
+            fake_initialise
+        )
 
         scheduler_runner.schedule_next_due_policy = (
             fake_schedule
@@ -234,36 +265,114 @@ def test_run_once_honours_batch_limit():
             original_connect
         )
 
+        scheduler_runner.initialise_next_scan_policy = (
+            original_initialise
+        )
+
         scheduler_runner.schedule_next_due_policy = (
             original_schedule
         )
 
     assert summary == {
-        "CREATED": 2,
+        "INITIALISED": 2,
     }
 
-    assert call_count == 2
+    assert initialise_calls == 2
+    assert schedule_calls == 0
+
     assert conn.enter_count == 2
     assert conn.exit_count == 2
+    assert conn.rollback_exit_count == 0
     assert conn.closed is True
 
 
-def test_run_once_rolls_back_failed_occurrence():
+def test_run_once_rolls_back_failed_initialisation():
     conn = FakeConnection()
 
-    original_connect = (
-        scheduler_runner.db.connect
+    original_connect = scheduler_runner.db.connect
+    original_initialise = (
+        scheduler_runner.initialise_next_scan_policy
     )
-
     original_schedule = (
-        scheduler_runner
-        .schedule_next_due_policy
+        scheduler_runner.schedule_next_due_policy
     )
 
     try:
-        scheduler_runner.db.connect = (
-            lambda: conn
+        scheduler_runner.db.connect = lambda: conn
+
+        def fake_initialise(received_conn):
+            assert received_conn is conn
+
+            raise RuntimeError(
+                "simulated initialisation failure"
+            )
+
+        def fake_schedule(received_conn):
+            raise AssertionError(
+                "Due scheduling must not run after "
+                "initialisation failure"
+            )
+
+        scheduler_runner.initialise_next_scan_policy = (
+            fake_initialise
         )
+
+        scheduler_runner.schedule_next_due_policy = (
+            fake_schedule
+        )
+
+        try:
+            scheduler_runner.run_once(
+                5
+            )
+
+        except RuntimeError as exc:
+            assert str(exc) == (
+                "simulated initialisation failure"
+            )
+
+        else:
+            raise AssertionError(
+                "Expected initialisation failure "
+                "to propagate from run_once"
+            )
+
+    finally:
+        scheduler_runner.db.connect = (
+            original_connect
+        )
+
+        scheduler_runner.initialise_next_scan_policy = (
+            original_initialise
+        )
+
+        scheduler_runner.schedule_next_due_policy = (
+            original_schedule
+        )
+
+    assert conn.enter_count == 1
+    assert conn.exit_count == 1
+    assert conn.rollback_exit_count == 1
+    assert conn.closed is True
+
+
+def test_run_once_rolls_back_failed_due_scheduling():
+    conn = FakeConnection()
+
+    original_connect = scheduler_runner.db.connect
+    original_initialise = (
+        scheduler_runner.initialise_next_scan_policy
+    )
+    original_schedule = (
+        scheduler_runner.schedule_next_due_policy
+    )
+
+    try:
+        scheduler_runner.db.connect = lambda: conn
+
+        def fake_initialise(received_conn):
+            assert received_conn is conn
+            return None
 
         def fake_schedule(received_conn):
             assert received_conn is conn
@@ -271,6 +380,10 @@ def test_run_once_rolls_back_failed_occurrence():
             raise RuntimeError(
                 "simulated scheduling failure"
             )
+
+        scheduler_runner.initialise_next_scan_policy = (
+            fake_initialise
+        )
 
         scheduler_runner.schedule_next_due_policy = (
             fake_schedule
@@ -297,12 +410,19 @@ def test_run_once_rolls_back_failed_occurrence():
             original_connect
         )
 
+        scheduler_runner.initialise_next_scan_policy = (
+            original_initialise
+        )
+
         scheduler_runner.schedule_next_due_policy = (
             original_schedule
         )
 
-    assert conn.enter_count == 1
-    assert conn.exit_count == 1
+    # First transaction is the successful no-work initialisation
+    # check. The second transaction is the failed due-scheduling
+    # operation.
+    assert conn.enter_count == 2
+    assert conn.exit_count == 2
     assert conn.rollback_exit_count == 1
     assert conn.closed is True
 
@@ -331,9 +451,10 @@ def test_invalid_batch_size():
 
 def main():
     test_env_int()
-    test_run_once_processes_until_no_work()
-    test_run_once_honours_batch_limit()
-    test_run_once_rolls_back_failed_occurrence()
+    test_run_once_initialises_then_processes_due_work()
+    test_run_once_batch_limit_includes_initialisation()
+    test_run_once_rolls_back_failed_initialisation()
+    test_run_once_rolls_back_failed_due_scheduling()
     test_invalid_batch_size()
 
     print(

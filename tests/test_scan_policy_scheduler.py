@@ -16,7 +16,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-from scan_coordination.scheduler import schedule_next_due_policy
+from scan_coordination.scheduler import (
+    initialise_next_scan_policy,
+    schedule_next_due_policy,
+)
 from scan_coordination.scheduling import next_cron_occurrence
 from scan_coordination.service import create_scan_execution
 from scan_coordination.subject_resolver import (
@@ -371,10 +374,165 @@ def make_nmap_policy(
     return asset_id, policy_id
 
 
+def test_policy_initialisation(conn):
+    """Verify first-occurrence initialisation semantics."""
+
+    clean_database(conn)
+
+    asset_id = create_asset(
+        conn,
+        canonical_name="initialisation-host",
+    )
+
+    # Enabled CRON + NULL is initialised.
+    enabled_policy = create_policy(
+        conn,
+        asset_id=asset_id,
+        profile_name="initialisation-enabled",
+        scanner_type="nmap_nse",
+        next_run_at=None,
+    )
+
+    with conn:
+        result = initialise_next_scan_policy(conn)
+
+    assert result is not None
+    assert result["action"] == "INITIALISED"
+    assert result["scan_policy_id"] == enabled_policy
+
+    expected = next_cron_occurrence(
+        "*/5 * * * *",
+        "UTC",
+        result["reference_time"],
+    )
+
+    assert result["next_run_at"] == expected
+    assert (
+        load_policy_next_run(
+            conn,
+            scan_policy_id=enabled_policy,
+        )
+        == expected
+    )
+
+    # Initialisation itself must never create an execution.
+    assert load_policy_executions(
+        conn,
+        scan_policy_id=enabled_policy,
+    ) == []
+
+    # An already initialised policy is not touched.
+    with conn:
+        result = initialise_next_scan_policy(conn)
+
+    assert result is None
+
+    assert (
+        load_policy_next_run(
+            conn,
+            scan_policy_id=enabled_policy,
+        )
+        == expected
+    )
+
+    # MANUAL policies remain NULL and are ignored.
+    manual_policy = create_policy(
+        conn,
+        asset_id=asset_id,
+        profile_name="initialisation-manual",
+        scanner_type="nmap_nse",
+        schedule_type="MANUAL",
+        next_run_at=None,
+    )
+
+    with conn:
+        result = initialise_next_scan_policy(conn)
+
+    assert result is None
+    assert (
+        load_policy_next_run(
+            conn,
+            scan_policy_id=manual_policy,
+        )
+        is None
+    )
+
+    # Disabled CRON policies remain NULL and are ignored.
+    disabled_policy = create_policy(
+        conn,
+        asset_id=asset_id,
+        profile_name="initialisation-disabled",
+        scanner_type="nmap_nse",
+        next_run_at=None,
+        enabled=False,
+    )
+
+    with conn:
+        result = initialise_next_scan_policy(conn)
+
+    assert result is None
+    assert (
+        load_policy_next_run(
+            conn,
+            scan_policy_id=disabled_policy,
+        )
+        is None
+    )
+
+    # Invalid schedule calculation must roll the transaction back and
+    # preserve the NULL pointer. Persist the deliberately invalid policy
+    # first so the failed scheduler transaction cannot roll back the test
+    # fixture itself.
+    with conn:
+        invalid_policy = create_policy(
+            conn,
+            asset_id=asset_id,
+            profile_name="initialisation-invalid",
+            scanner_type="nmap_nse",
+            next_run_at=None,
+            schedule_expression="not a cron expression",
+        )
+
+    try:
+        with conn:
+            initialise_next_scan_policy(conn)
+    except Exception:
+        pass
+    else:
+        raise AssertionError(
+            "Expected invalid CRON policy initialisation to fail"
+        )
+
+    assert (
+        load_policy_next_run(
+            conn,
+            scan_policy_id=invalid_policy,
+        )
+        is None
+    )
+
+    # Prevent the deliberately invalid policy from interfering with the
+    # existing scheduler regression flow.
+    with conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE scan_policies
+                SET is_enabled = FALSE
+                WHERE scan_policy_id = %s
+                """,
+                (invalid_policy,),
+            )
+
+    clean_database(conn)
+
+
 def main():
     conn = psycopg2.connect(**PG)
 
     try:
+        test_policy_initialisation(conn)
+
         with conn:
             clean_database(conn)
 
