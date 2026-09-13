@@ -440,6 +440,7 @@ def test_run_once_bad_initialisation_does_not_starve_later_policy():
     )
 
     initialise_calls = []
+    policy_101_initialised = False
 
     try:
         scheduler_runner.db.connect = lambda: conn
@@ -449,6 +450,8 @@ def test_run_once_bad_initialisation_does_not_starve_later_policy():
             *,
             excluded_policy_ids=None,
         ):
+            nonlocal policy_101_initialised
+
             assert received_conn is conn
 
             excluded = set(
@@ -467,7 +470,8 @@ def test_run_once_bad_initialisation_does_not_starve_later_policy():
                 exc.scheduler_operation = "INITIALISE"
                 raise exc
 
-            if 101 not in excluded:
+            if not policy_101_initialised:
+                policy_101_initialised = True
                 return {
                     "action": "INITIALISED",
                     "scan_policy_id": 101,
@@ -536,6 +540,7 @@ def test_run_once_bad_due_policy_does_not_starve_later_policy():
     )
 
     schedule_calls = []
+    policy_201_scheduled = False
 
     try:
         scheduler_runner.db.connect = lambda: conn
@@ -553,6 +558,8 @@ def test_run_once_bad_due_policy_does_not_starve_later_policy():
             *,
             excluded_policy_ids=None,
         ):
+            nonlocal policy_201_scheduled
+
             assert received_conn is conn
 
             excluded = set(
@@ -571,7 +578,8 @@ def test_run_once_bad_due_policy_does_not_starve_later_policy():
                 exc.scheduler_operation = "SCHEDULE"
                 raise exc
 
-            if 201 not in excluded:
+            if not policy_201_scheduled:
+                policy_201_scheduled = True
                 return {
                     "action": "CREATED",
                     "scan_policy_id": 201,
@@ -736,6 +744,9 @@ def main():
     test_run_once_batch_limit_includes_initialisation()
     test_run_once_rolls_back_failed_initialisation()
     test_run_once_rolls_back_failed_due_scheduling()
+    test_run_once_bad_initialisation_does_not_starve_later_policy()
+    test_run_once_bad_due_policy_does_not_starve_later_policy()
+    test_run_once_policy_local_failure_consumes_batch_capacity()
     test_invalid_batch_size()
 
     print(
