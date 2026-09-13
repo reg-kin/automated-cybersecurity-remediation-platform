@@ -55,6 +55,7 @@ SQL_FILES=(
     "database/migrations/018_scan_execution_lease_safety.sql"
     "database/migrations/019_scan_execution_node_authentication.sql"
     "database/migrations/020_scan_execution_context.sql"
+    "database/migrations/021_scan_policy_scheduling.sql"
 )
 
 cleanup() {
@@ -188,6 +189,7 @@ REGRESSION_TESTS=(
     "tests/test_wazuh_indexer_tls_configuration.py"
     "tests/test_wazuh_integration_redis_configuration.py"
     "tests/test_openvas_normalization.py"
+    "tests/test_scan_policy_scheduling.py"
 )
 
 for test_file in "${REGRESSION_TESTS[@]}"; do
@@ -762,6 +764,30 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_scan_coordination_service.py \
     || fail "Scan coordination service regression failed."
 
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_scan_subject_resolution.py \
+    || fail "Scan subject resolution regression failed."
+
+PG_HOST=127.0.0.1 \
+PG_PORT=5432 \
+PG_DBNAME="${TEST_DB}" \
+PG_USER="${SMOKE_DB_USER}" \
+PG_PASSWORD="${PG_PASSWORD}" \
+python3 tests/test_scan_policy_scheduler.py \
+    || fail "Scan policy scheduler regression failed."
+
+python3 tests/test_scan_policy_scheduling.py \
+    || fail "Scan policy scheduling calculation regression failed."
+
+python3 tests/test_scan_policy_scheduler_runtime.py \
+    || fail "Scan policy scheduler runtime regression failed."
+
+python3 tests/test_systemd_service_identity.py \
+    || fail "Systemd service identity regression failed."
 
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \

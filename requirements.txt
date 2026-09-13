@@ -8,3 +8,4 @@ python-gvm==27.7.0
 redis==4.4.4
 rq==1.16.1
 urllib3==2.7.0
+croniter==6.2.4
