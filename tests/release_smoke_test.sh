@@ -780,6 +780,9 @@ PG_PASSWORD="${PG_PASSWORD}" \
 python3 tests/test_scan_policy_scheduler.py \
     || fail "Scan policy scheduler regression failed."
 
+python3 tests/test_scan_policy_scheduler_runtime.py \
+    || fail "Scan policy scheduler runtime regression failed."
+
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \

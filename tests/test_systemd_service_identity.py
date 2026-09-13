@@ -11,6 +11,7 @@ SERVICE_FILES = (
     "deferred-reconciler.service",
     "remediation-controller.service",
     "readiness-admin-api.service",
+    "scan-policy-scheduler.service",
 )
 
 EXPECTED_USER = "automated-remediation"

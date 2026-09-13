@@ -1,0 +1,28 @@
+[Unit]
+Description=Automated Remediation Scan Policy Scheduler
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=automated-remediation
+Group=automated-remediation
+
+EnvironmentFile=/etc/scan-policy-scheduler.env
+Environment=PYTHONPATH=/opt/regis-security
+
+WorkingDirectory=/opt/regis-security
+
+ExecStart=/opt/regis-security/venv/bin/python /opt/regis-security/scan_coordination/scheduler_runner.py --loop
+
+Restart=on-failure
+RestartSec=10
+
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
