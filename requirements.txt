@@ -7,5 +7,5 @@ jsonschema==4.23.0
 python-gvm==27.7.0
 redis==4.4.4
 rq==1.16.1
-urllib3==2.7.0
+urllib3==2.8.0
 croniter==6.2.4
