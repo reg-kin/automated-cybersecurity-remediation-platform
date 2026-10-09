@@ -111,13 +111,104 @@ operated during this test.
 
 ## Capabilities not yet validated live
 
-- Full remediation-controller-to-Runner integration
-- Authorised execution-target enforcement through the complete workflow
-- Database-backed remediation execution lifecycle
+- Rejection of unauthorised execution targets through the complete workflow
+- Complete database-backed remediation lifecycle through final resolution
+- Automatic recovery after Stage 1 verification initialisation failure
 - Stage 2 verification using a fresh scanner observation
 - End-to-end scanner finding ingestion and orchestration
 - Failure handling across the complete remediation workflow
 - Production vulnerability or compliance remediation
+
+## Controller-to-Runner integration validation
+
+### Environment and scope
+
+- Date: 2026-10-09
+- Controller endpoint: `127.0.0.1:9001` (isolated Gunicorn instance)
+- Controller source: Git working tree
+- Database: `regis_controller_integration_test`
+- Production Controller: not modified or restarted
+- Stage 2 configuration: `TEST_SKIP_STAGE2=true`
+- Tenant: `CONTROLLER-LIVE-INT-TEST`
+- Finding ID: `2`
+- Remediation rule ID: `45`
+- Authorised execution target: Ubuntu laptop, SSH alias `192.168.0.198`
+- Playbook: `controller_positive_test.yml`
+- Disposable marker: `/tmp/regis-stage2-positive/regis-marker.txt`
+
+### Test results
+
+| ID | Capability | Result | Evidence |
+|---|---|---|---|
+| INT-011 | Controller-to-Runner remediation invocation | PASS | `POST /remediate`, HTTP 200, execution `2`, Ansible exit code `0` |
+| INT-012 | Database-backed Stage 1 verification | PASS | Execution `2`: `STAGE1_PASSED`; verification stage `1`, `ANSIBLE_LOCAL`, source `ansible`, `PASSED` |
+| INT-013 | Remediation on authorised laptop target | PASS | Playbook target `192.168.0.198`; Controller response `success=true` |
+| INT-014 | Independent endpoint verification | PASS | Separate SSH check: `PASS: Test marker removed from Ubuntu laptop` |
+
+### Initial failure and corrective actions
+
+The first Controller request returned HTTP 500 because the isolated
+PostgreSQL database lacked
+`begin_remediation_verification(bigint,bigint,smallint,text,text)`.
+The failure occurred before Ansible execution.
+
+Execution `1` was left `RUNNING` and finding `2` was left
+`IN_REMEDIATION`. Both were recovered in the isolated database:
+execution `1` was marked `FAILED`, and finding `2` was reopened.
+
+Corrective changes in the Git working tree:
+
+- `database/migrations/022_remediation_verification_functions.sql`
+  introduces `begin_remediation_verification` and
+  `complete_remediation_verification`.
+- Migration `022` was applied successfully to the isolated database only.
+- `remediation/controllers/base.py` now handles Stage 1 verification
+  initialisation exceptions by failing the execution and reopening the
+  finding through the failure-recovery path.
+
+The isolated Controller was restarted from the Git working tree, using
+the existing Python virtual environment, isolated database, and Stage 2
+test configuration. The production Controller and production database
+were not changed.
+
+### Successful Controller retest
+
+The disposable marker was recreated on the laptop before the retest.
+
+The Controller returned HTTP 200 with:
+
+- Execution ID: `2`
+- `success`: `true`
+- Ansible exit code: `0`
+- Stage 1 verification: `PASSED`
+- Stage 2: `SKIPPED_TEST_MODE`
+
+A separate SSH check confirmed the marker had been removed from the
+laptop. PostgreSQL independently confirmed:
+
+- Execution `2`: `STAGE1_PASSED`
+- Finding `2` associated with execution `2`
+- Verification stage `1`: `PASSED`
+- Verification type: `ANSIBLE_LOCAL`
+- Verification source: `ansible`
+- Verified at: `2026-10-09 19:20:49.574969+00`
+
+### Limitations and remaining validation
+
+This test confirms Controller-to-Runner execution, the controlled
+remediation action on the laptop, immediate Stage 1 verification, and
+persistence of the Stage 1 result in the isolated database.
+
+It does not demonstrate Stage 2 scanner verification, final finding
+resolution, end-to-end scanner ingestion, or production remediation.
+
+The missing-function failure was observed and manually recovered.
+The newly added automatic recovery path has not yet been independently
+failure-injection tested.
+
+The migration and Python correction have not been deployed to
+production. The existing Runner SSH `known_hosts` read-only warnings
+remain non-fatal.
 
 ## Documentation policy
 
