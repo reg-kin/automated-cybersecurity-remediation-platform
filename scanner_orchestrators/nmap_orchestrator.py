@@ -1736,7 +1736,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--target-host",
-        required=True,
+        required=False,
     )
 
     parser.add_argument(
@@ -1901,6 +1901,14 @@ def main() -> int:
     logger = setup_logging(
         args.verbose
     )
+
+    if (
+        not isinstance(args.target_host, str)
+        or not args.target_host.strip()
+    ):
+        raise ValueError(
+            "SCAN and VERIFY modes require a non-empty target_host"
+        )
 
     try:
 
