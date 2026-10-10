@@ -573,15 +573,47 @@ class BaseController:
 
             # Stage 1 verification row is created before
             # Ansible execution and completed in place.
-            with conn:
-                stage1_id = db.begin_verification(
-                    conn,
-                    p["finding_id"],
-                    execution_id,
-                    1,
-                    "ANSIBLE_LOCAL",
-                    "ansible",
+            try:
+                with conn:
+                    stage1_id = db.begin_verification(
+                        conn,
+                        p["finding_id"],
+                        execution_id,
+                        1,
+                        "ANSIBLE_LOCAL",
+                        "ansible",
+                    )
+            except Exception as exc:
+                error = (
+                    "Stage 1 verification initialization failed: "
+                    f"{exc}"
                 )
+
+                # The failed verification transaction has
+                # rolled back. Recover the execution and
+                # finding together before returning.
+                with conn:
+                    db.update_execution_status(
+                        conn,
+                        execution_id,
+                        "FAILED",
+                        error_message=error,
+                        completed_at=utcnow(),
+                    )
+                    db.reopen_failed(
+                        conn,
+                        p["finding_id"],
+                        error,
+                    )
+
+                return {
+                    "success": False,
+                    "execution_id": execution_id,
+                    "stage1": {
+                        "status": "FAILED",
+                    },
+                    "error": error,
+                }
 
             try:
                 ansible = run_ansible(
