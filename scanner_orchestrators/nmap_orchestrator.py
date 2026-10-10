@@ -324,7 +324,7 @@ def parse_json_object(
 
 def severity_from_output(
     output: str,
-) -> Tuple[str, float]:
+) -> Tuple[str, Optional[float]]:
 
     upper = (
         output or ""
@@ -354,12 +354,8 @@ def severity_from_output(
             3.0,
         )
 
-    # An NSE vulnerability script declaring VULNERABLE without a CVSS
-    # value is treated as HIGH rather than inventing an exact CVSS score.
-    return (
-        "HIGH",
-        7.0,
-    )
+    # NSE output alone does not supply an authoritative CVSS score.
+    return ("HIGH", None)
 
 
 # ============================================================================
@@ -370,57 +366,32 @@ def output_indicates_positive_finding(
     script_id: str,
     output: str,
 ) -> bool:
-    """
-    Determine whether the NSE output actually reports a security condition.
+    """Conservatively identify a reported positive condition, not script names."""
+    text = output or ""
+    states = re.findall(
+        r"(?im)^\s*state:\s*(likely\s+vulnerable|vulnerable|not\s+vulnerable)\b",
+        text,
+    )
+    if any(state.lower() in ("vulnerable", "likely vulnerable") for state in states):
+        return True
+    if states:
+        return False
 
-    For broad vuln scans we are deliberately conservative.
-
-    The mere execution of an NSE script is not a finding.
-    """
-
-    combined = (
-        f"{script_id} {output}"
-    ).lower()
+    # Error output is not evidence of a security finding.
+    if re.search(r"(?im)^\s*(?:error|failed|timeout|could not)\b", text):
+        return False
 
     positive_markers = (
-        "vulnerable",
-        "likely vulnerable",
-        "state: vuln",
-        "state: vulnerable",
-        "authentication bypass",
-        "anonymous login allowed",
-        "default credential",
-        "weak cipher",
-        "weak encryption",
-        "expired certificate",
-        "self-signed certificate",
-        "hostname mismatch",
-        "directory traversal",
-        "path traversal",
-        "cross site scripting",
-        "cross-site scripting",
-        "sql injection",
-        "command injection",
-        "ssrf",
-        "server-side request forgery",
-        "sensitive information",
-        "exposed",
+        "authentication bypass", "anonymous login allowed",
+        "default credential", "weak cipher", "weak encryption",
+        "expired certificate", "self-signed certificate",
+        "hostname mismatch", "directory traversal", "path traversal",
+        "cross site scripting", "cross-site scripting", "sql injection",
+        "command injection", "ssrf", "server-side request forgery",
+        "sensitive information", "exposed",
     )
-
-    if any(
-        marker in combined
-        for marker in positive_markers
-    ):
-        return True
-
-    # Many vulnerability NSE scripts include the actual CVE in their
-    # positive result.
-    if extract_cves(
-        output
-    ):
-        return True
-
-    return False
+    lower = text.lower()
+    return any(marker in lower for marker in positive_markers) or bool(extract_cves(text))
 
 
 # ============================================================================
@@ -845,6 +816,7 @@ def run_nmap(
     nse_script: Optional[str] = None,
     ports: Optional[str] = None,
     verbose: bool = False,
+    verification_showall: bool = False,
 ) -> str:
 
     script_argument = determine_script_argument(
@@ -883,6 +855,15 @@ def run_nmap(
             "Nmap target_host contains prohibited control characters"
         )
 
+    # A scanner task is scoped to one host. Reject target expressions,
+    # option injection and file-input syntax even though subprocess uses argv.
+    if (re.search(r"\s", target_host)
+            or "/" in target_host
+            or "," in target_host
+            or target_host.startswith("@")
+            or target_host.startswith("+")):
+        raise ValueError("Nmap target_host must identify one host, not a target expression")
+
     command = [
         NMAP_BINARY,
         "-sV",
@@ -890,6 +871,14 @@ def run_nmap(
         "-Pn",
         f"--script={script_argument}",
     ]
+
+    if verification_showall:
+        if scan_mode != "specific" or nse_script != "smb-vuln-ms17-010":
+            raise ValueError(
+                "Nmap verification_showall is restricted to "
+                "smb-vuln-ms17-010 specific scans"
+            )
+        command.extend(["--script-args", "vulns.showall=true"])
 
     if ports:
 
@@ -1167,6 +1156,9 @@ def normalize_results(
                 target_host,
                 finding_class,
                 finding_key,
+                script_id,
+                result.get("port"),
+                result.get("protocol"),
             )
 
             if dedup_key in seen:
@@ -1546,11 +1538,85 @@ def run_verify_mode(
         nse_script=script_id,
         ports=ports,
         verbose=verbose,
+        verification_showall=(script_id == "smb-vuln-ms17-010"),
     )
+
+    # A scan without host evidence cannot establish remediation.
+    # Reject it before evaluating whether the finding remains present.
+    verification_root = ET.fromstring(xml_text)
+
+    verification_hosts = verification_root.findall("./host")
+
+    if not verification_hosts:
+        raise RuntimeError(
+            "Nmap Stage 2 verification inconclusive: "
+            "scan returned no host evidence"
+        )
+
+    # Verification evidence must belong exclusively to the requested
+    # target. An unrelated host cannot establish finding absence.
+    for verification_host in verification_hosts:
+        host_addresses = {
+            address.get("addr")
+            for address in verification_host.findall("./address")
+            if address.get("addr")
+        }
+
+        import ipaddress
+        try:
+            ipaddress.ip_address(target_host)
+            is_ip_target = True
+        except ValueError:
+            is_ip_target = False
+
+        hostnames = {
+            name.get("name", "").rstrip(".").lower()
+            for name in verification_host.findall("./hostnames/hostname")
+        }
+        if (is_ip_target and target_host not in host_addresses) or (
+            not is_ip_target
+            and target_host.rstrip(".").lower() not in hostnames
+        ):
+            raise RuntimeError(
+                "Nmap Stage 2 verification inconclusive: "
+                "scan host identity does not match requested target"
+            )
+
+        host_status = verification_host.find("./status")
+
+        if (
+            host_status is None
+            or host_status.get("state") != "up"
+        ):
+            raise RuntimeError(
+                "Nmap Stage 2 verification inconclusive: "
+                "target host is not confirmed up"
+            )
 
     script_results = collect_script_results(
         xml_text
     )
+
+    # A negative Stage 2 decision requires evidence that the
+    # requested NSE script actually ran against the requested port.
+    requested_results = [
+        result
+        for result in script_results
+        if (
+            result.get("script_id") == script_id
+            and (
+                ports is None
+                or str(result.get("port")) == ports
+            )
+            and str(result.get("output") or "").strip()
+        )
+    ]
+
+    if not requested_results:
+        raise RuntimeError(
+            "Nmap Stage 2 verification inconclusive: "
+            "requested NSE script produced no usable evidence"
+        )
 
     present, matches = (
         verification_result_contains_key(
@@ -1559,6 +1625,13 @@ def run_verify_mode(
             finding_class=finding_class,
         )
     )
+
+    if not present:
+        raise RuntimeError(
+            "Nmap Stage 2 verification inconclusive: "
+            "NSE negative output does not independently establish "
+            "successful vulnerability remediation"
+        )
 
     return {
         "present":
