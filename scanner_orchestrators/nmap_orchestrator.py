@@ -107,6 +107,7 @@ Verification:
 
 import argparse
 import datetime
+import ftplib
 import json
 import logging
 import os
@@ -1320,6 +1321,55 @@ def run_scan_mode(
         verbose=verbose,
     )
 
+    if script_id == "ftp-anon":
+        # A missing ftp-anon NSE result is not evidence of remediation.
+        # Require the exact original finding and an open TCP FTP port
+        # before independently attempting anonymous authentication.
+        if (
+            finding_key != f"NMAP-NSE:ftp-anon:{ports}/tcp"
+            or finding_class != "service_misconfiguration"
+            or ports is None
+            or not re.fullmatch(r"[0-9]{1,5}", ports)
+            or not 1 <= int(ports) <= 65535
+            or engine_metadata.get("protocol", "tcp") != "tcp"
+        ):
+            raise ValueError(
+                "FTP Stage 2 requires an exact ftp-anon TCP finding and port"
+            )
+
+        for host in verification_hosts:
+            matching_ports = [
+                p for p in host.findall("./ports/port")
+                if p.get("protocol") == "tcp"
+                and p.get("portid") == str(int(ports))
+                and p.find("./state") is not None
+                and p.find("./state").get("state") == "open"
+            ]
+            if len(matching_ports) != 1:
+                raise RuntimeError(
+                    "FTP Stage 2 inconclusive: original TCP port not confirmed open"
+                )
+
+        present = verify_ftp_anonymous_login(target_host, int(ports))
+        return {
+            "present": present,
+            "finding_key": finding_key,
+            "finding_class": finding_class,
+            "scanner": "nmap_nse",
+            "target_host": target_host,
+            "verified_at": utc_now(),
+            "evidence": {
+                "script_id": script_id,
+                "port": int(ports),
+                "protocol": "tcp",
+                "verification_method": "ftp_anonymous_authentication",
+                "authentication_result": (
+                    "anonymous_login_accepted"
+                    if present else "anonymous_login_rejected_530"
+                ),
+            },
+        }
+
     script_results = collect_script_results(
         xml_text
     )
@@ -1477,6 +1527,36 @@ def verification_result_contains_key(
         bool(matches),
         matches,
     )
+
+
+def verify_ftp_anonymous_login(target_host: str, port: int) -> bool:
+    """Independently test anonymous FTP authentication on one TCP endpoint.
+
+    Only a 230 login success or an explicit 530 rejection of the
+    anonymous login is decisive. Network/protocol failures fail closed.
+    """
+    try:
+        with ftplib.FTP() as ftp:
+            ftp.connect(host=target_host, port=port, timeout=15)
+            response = ftp.login(
+                user="anonymous",
+                passwd="anonymous@example.com",
+            )
+            if not response.startswith("230"):
+                raise RuntimeError(
+                    "FTP Stage 2 inconclusive: unexpected login response"
+                )
+            return True
+    except ftplib.error_perm as exc:
+        if str(exc).startswith("530"):
+            return False
+        raise RuntimeError(
+            "FTP Stage 2 inconclusive: unexpected authentication error"
+        ) from exc
+    except (OSError, EOFError, ftplib.Error) as exc:
+        raise RuntimeError(
+            "FTP Stage 2 inconclusive: authentication probe failed"
+        ) from exc
 
 
 def run_verify_mode(
