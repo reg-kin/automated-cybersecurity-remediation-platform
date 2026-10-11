@@ -197,6 +197,38 @@ expect_value_error(
 )
 print("PASS: generic ftp-anon remediation fails closed")
 
+# Persisted Nmap finding metadata must be the sole source of the FTP port.
+ftp_authoritative = finding(
+    engine_source="nmap_nse",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:2121/tcp",
+    engine_metadata={
+        "script_id": "ftp-anon",
+        "port": "2121",
+        "protocol": "tcp",
+    },
+)
+assert base.validated_ftp_port(ftp_authoritative) == 2121
+for changes, expected in [
+    ({"finding_key": "NMAP-NSE:ftp-anon:21/tcp"}, "disagree"),
+    ({"engine_source": "nmap"}, "disagree"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": "0", "protocol": "tcp"}}, "range"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": "65536", "protocol": "tcp"}}, "range"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": "21;id", "protocol": "tcp"}}, "invalid"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": True, "protocol": "tcp"}}, "decimal"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": "2121", "protocol": "udp"}}, "disagree"),
+    ({"engine_metadata": {"script_id": "other", "port": "2121", "protocol": "tcp"}}, "disagree"),
+    ({"engine_metadata": {}}, "decimal"),
+]:
+    expect_value_error(
+        lambda changes=changes: base.validated_ftp_port(
+            {**ftp_authoritative, **changes}
+        ),
+        expected,
+    )
+print("PASS: FTP port validation rejects inconsistent persisted metadata")
+
+
 # ---------------------------------------------------------------------------
 # Approval gate: persist execution but do not invoke Ansible
 # ---------------------------------------------------------------------------
