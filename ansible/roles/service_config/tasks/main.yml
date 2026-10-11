@@ -77,6 +77,25 @@
     fail_msg: Running vsftpd service identity or configuration path cannot be established
   when: remediation_action == 'disable_vsftpd_anonymous'
 
+- name: Count active vsftpd anonymous access directives
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -Ec
+      - '^[[:space:]]*anonymous_enable[[:space:]]*='
+      - /etc/vsftpd.conf
+  register: vsftpd_anonymous_directive_count
+  changed_when: false
+  failed_when: vsftpd_anonymous_directive_count.rc not in [0, 1]
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Reject missing or duplicate vsftpd anonymous access directives
+  ansible.builtin.assert:
+    that:
+      - vsftpd_anonymous_directive_count.stdout | int == 1
+    fail_msg: Expected exactly one active anonymous_enable directive; refusing remediation
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
 - name: Disable vsftpd anonymous login
   ansible.builtin.lineinfile:
     path: /etc/vsftpd.conf
