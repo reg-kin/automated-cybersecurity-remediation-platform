@@ -77,6 +77,209 @@
     fail_msg: Running vsftpd service identity or configuration path cannot be established
   when: remediation_action == 'disable_vsftpd_anonymous'
 
+# Reusable systemd TCP-listener ownership check. The port comes from
+# persisted scanner evidence validated by the controller, never from
+# execution_parameters. Other service actions may opt in only after
+# their own service identity and configuration guards are established.
+- name: Require validated service TCP port
+  ansible.builtin.assert:
+    that:
+      - validated_ftp_port is defined
+      - validated_ftp_port | string is match('^[0-9]{1,5}
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -Ec
+      - '^[[:space:]]*anonymous_enable[[:space:]]*='
+      - /etc/vsftpd.conf
+  register: vsftpd_anonymous_directive_count
+  changed_when: false
+  failed_when: vsftpd_anonymous_directive_count.rc not in [0, 1]
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Reject missing or duplicate vsftpd anonymous access directives
+  ansible.builtin.assert:
+    that:
+      - vsftpd_anonymous_directive_count.stdout | int == 1
+    fail_msg: Expected exactly one active anonymous_enable directive; refusing remediation
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Disable vsftpd anonymous login
+  ansible.builtin.lineinfile:
+    path: /etc/vsftpd.conf
+    regexp: '^[[:space:]]*anonymous_enable[[:space:]]*='
+    line: 'anonymous_enable=NO'
+    backup: true
+  when: remediation_action == 'disable_vsftpd_anonymous'
+  notify: restart vsftpd
+
+- name: Verify vsftpd anonymous login is disabled in configuration
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -Eq
+      - '^anonymous_enable=NO$'
+      - /etc/vsftpd.conf
+  changed_when: false
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Restrict port with UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ port | string }}"
+    proto: "{{ protocol | default('tcp') }}"
+    src: "{{ source_cidr | default('127.0.0.1/32') }}"
+  when: remediation_action == 'restrict_port'
+
+- name: Deploy certificate
+  ansible.builtin.copy:
+    src: "{{ certificate_src }}"
+    dest: "{{ certificate_dest }}"
+    mode: '0644'
+  when: remediation_action == 'deploy_certificate'
+  notify: restart service
+
+- name: Deploy private key
+  ansible.builtin.copy:
+    src: "{{ private_key_src }}"
+    dest: "{{ private_key_dest }}"
+    mode: '0600'
+  when: remediation_action == 'deploy_certificate' and private_key_src is defined and private_key_dest is defined
+  notify: restart service
+
+- name: Stage 1 verify configuration line
+  ansible.builtin.command: "grep -F -- {{ config_line | quote }} {{ config_file | quote }}"
+  changed_when: false
+  when: remediation_action == 'set_config_line'
+)
+      - validated_ftp_port | int >= 1
+      - validated_ftp_port | int <= 65535
+    fail_msg: Authoritative TCP port is unavailable; refusing service remediation
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Inspect listening TCP sockets
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -H
+      - -l
+      - -n
+      - -t
+      - -p
+  register: service_tcp_listeners
+  changed_when: false
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Select sockets bound to the validated TCP port
+  ansible.builtin.set_fact:
+    service_port_listener_lines: >-
+      {{
+        service_tcp_listeners.stdout_lines
+        | select('search', '^[^ ]+[ ]+[^ ]+[ ]+[^ ]+[ ]+[^ ]+:' ~ (validated_ftp_port | string) ~ '[ ]+')
+        | list
+      }}
+    service_main_pid: >-
+      {{
+        vsftpd_systemd.stdout
+        | regex_findall('(?m)^MainPID=([1-9][0-9]*)
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -Ec
+      - '^[[:space:]]*anonymous_enable[[:space:]]*='
+      - /etc/vsftpd.conf
+  register: vsftpd_anonymous_directive_count
+  changed_when: false
+  failed_when: vsftpd_anonymous_directive_count.rc not in [0, 1]
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Reject missing or duplicate vsftpd anonymous access directives
+  ansible.builtin.assert:
+    that:
+      - vsftpd_anonymous_directive_count.stdout | int == 1
+    fail_msg: Expected exactly one active anonymous_enable directive; refusing remediation
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Disable vsftpd anonymous login
+  ansible.builtin.lineinfile:
+    path: /etc/vsftpd.conf
+    regexp: '^[[:space:]]*anonymous_enable[[:space:]]*='
+    line: 'anonymous_enable=NO'
+    backup: true
+  when: remediation_action == 'disable_vsftpd_anonymous'
+  notify: restart vsftpd
+
+- name: Verify vsftpd anonymous login is disabled in configuration
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -Eq
+      - '^anonymous_enable=NO$'
+      - /etc/vsftpd.conf
+  changed_when: false
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Restrict port with UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ port | string }}"
+    proto: "{{ protocol | default('tcp') }}"
+    src: "{{ source_cidr | default('127.0.0.1/32') }}"
+  when: remediation_action == 'restrict_port'
+
+- name: Deploy certificate
+  ansible.builtin.copy:
+    src: "{{ certificate_src }}"
+    dest: "{{ certificate_dest }}"
+    mode: '0644'
+  when: remediation_action == 'deploy_certificate'
+  notify: restart service
+
+- name: Deploy private key
+  ansible.builtin.copy:
+    src: "{{ private_key_src }}"
+    dest: "{{ private_key_dest }}"
+    mode: '0600'
+  when: remediation_action == 'deploy_certificate' and private_key_src is defined and private_key_dest is defined
+  notify: restart service
+
+- name: Stage 1 verify configuration line
+  ansible.builtin.command: "grep -F -- {{ config_line | quote }} {{ config_file | quote }}"
+  changed_when: false
+  when: remediation_action == 'set_config_line'
+)
+        | first
+      }}
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Require unambiguous systemd ownership of every TCP listener
+  ansible.builtin.assert:
+    that:
+      - service_port_listener_lines | length > 0
+      - >-
+        (
+          service_port_listener_lines
+          | reject('search', 'users:\\(\\("vsftpd",pid=' ~ service_main_pid ~ ',fd=[0-9]+\\)\\)')
+          | list
+          | length
+        ) == 0
+      - >-
+        (
+          service_port_listener_lines
+          | select('search', 'pid=[0-9]+')
+          | list
+          | length
+        ) == service_port_listener_lines | length
+      - >-
+        (
+          service_port_listener_lines
+          | select('search', 'pid=(?!' ~ service_main_pid ~ '[,])')
+          | list
+          | length
+        ) == 0
+    fail_msg: TCP listener ownership does not match the validated systemd service
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
 - name: Count active vsftpd anonymous access directives
   ansible.builtin.command:
     argv:
