@@ -229,6 +229,19 @@ class BaseController:
                 "remediation controller"
             )
 
+        # Nmap ftp-anon confirms anonymous login, not the FTP daemon or
+        # its configuration path. Block generic configuration execution
+        # until a server-validated remediation capability is available.
+        if (
+            finding["engine_source"] == "nmap"
+            and finding["finding_class"] == "service_misconfiguration"
+            and str(finding["finding_key"]).startswith("NMAP-NSE:ftp-anon:")
+        ):
+            raise ValueError(
+                "Nmap ftp-anon requires server-validated remediation; "
+                "generic configuration execution is prohibited"
+            )
+
         execution_parameters = (
             p.get("execution_parameters")
             or {}
