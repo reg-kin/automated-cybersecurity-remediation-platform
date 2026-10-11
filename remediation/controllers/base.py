@@ -233,7 +233,7 @@ class BaseController:
         # its configuration path. Block generic configuration execution
         # until a server-validated remediation capability is available.
         if (
-            finding["engine_source"] == "nmap"
+            finding["engine_source"] in ("nmap_nse", "nmap")
             and finding["finding_class"] == "service_misconfiguration"
             and str(finding["finding_key"]).startswith("NMAP-NSE:ftp-anon:")
         ):
