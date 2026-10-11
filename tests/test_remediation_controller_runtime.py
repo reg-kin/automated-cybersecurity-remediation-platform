@@ -228,6 +228,45 @@ for changes, expected in [
     )
 print("PASS: FTP port validation rejects inconsistent persisted metadata")
 
+# The common contract also validates other explicitly selected Nmap scripts.
+ssh_finding = {
+    **ftp_authoritative,
+    "finding_key": "NMAP-NSE:ssh-auth-methods:2222/tcp",
+    "engine_metadata": {
+        "script_id": "ssh-auth-methods",
+        "port": 2222,
+        "protocol": "tcp",
+    },
+}
+assert base.validated_nmap_service_identity(
+    ssh_finding, "ssh-auth-methods"
+) == {
+    "script_id": "ssh-auth-methods",
+    "port": 2222,
+    "protocol": "tcp",
+}
+expect_value_error(
+    lambda: base.validated_nmap_service_identity(
+        ssh_finding, "ftp-anon"
+    ),
+    "disagree",
+)
+expect_value_error(
+    lambda: base.validated_nmap_service_identity(
+        ssh_finding, "../ssh"
+    ),
+    "invalid",
+)
+expect_value_error(
+    lambda: base.validated_nmap_service_identity(
+        {**ssh_finding, "finding_key": "NMAP-NSE:ssh-auth-methods:22/tcp"},
+        "ssh-auth-methods",
+    ),
+    "disagree",
+)
+print("PASS: reusable Nmap service identity contract validates selected scripts")
+
+
 
 # ---------------------------------------------------------------------------
 # Approval gate: persist execution but do not invoke Ansible
