@@ -250,6 +250,38 @@ def dispatch(p):
             f"{result.stdout[:500]}"
         ) from exc
 
+    if not isinstance(scanner_result, dict):
+        raise RuntimeError(
+            f"{engine_source} verification result must be a JSON object"
+        )
+
+    if scanner_result.get("verification_status") == "INCONCLUSIVE":
+        reason = scanner_result.get("verification_reason")
+
+        if (
+            "present" not in scanner_result
+            or scanner_result["present"] is not None
+            or not isinstance(reason, str)
+            or not reason.strip()
+        ):
+            raise RuntimeError(
+                f"{engine_source} returned invalid INCONCLUSIVE result"
+            )
+
+        return {
+            "finding_id": finding_id,
+            "execution_id": execution_id,
+            "engine_source": engine_source,
+            "finding_class": finding_class,
+            "finding_key": finding_key,
+            "target_host": target_host,
+            "present": None,
+            "verification_status": "INCONCLUSIVE",
+            "verification_reason": reason.strip(),
+            "verified_at": scanner_result.get("verified_at"),
+            "scanner_result": scanner_result,
+        }
+
     present = scanner_result.get(
         "present"
     )

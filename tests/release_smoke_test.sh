@@ -19,13 +19,21 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+PYTHON="${ROOT_DIR}/.venv/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+    echo "ERROR: Project Python virtual environment is missing." >&2
+    echo "Create it with: python3 -m venv .venv" >&2
+    echo "Install dependencies with: .venv/bin/pip install -r requirements.txt" >&2
+    exit 1
+fi
+
 PG_CONTAINER="${PG_CONTAINER:-portal-datastore}"
 PG_USER="${PG_USER:-telemetry_admin}"
 TEST_DB="${TEST_DB:-automated_remediation_release_smoke_test}"
 
 SMOKE_DB_USER="remediation_smoke_$$"
 SMOKE_DB_PASSWORD="$(
-    python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+    "${PYTHON}" -c 'import secrets; print(secrets.token_urlsafe(32))'
 )"
 
 EXPECTED_FINDING_CLASSES=43
@@ -56,6 +64,8 @@ SQL_FILES=(
     "database/migrations/019_scan_execution_node_authentication.sql"
     "database/migrations/020_scan_execution_context.sql"
     "database/migrations/021_scan_policy_scheduling.sql"
+    "database/migrations/022_remediation_verification_functions.sql"
+    "database/migrations/023_manual_verification.sql"
 )
 
 cleanup() {
@@ -130,7 +140,7 @@ pass "Required repository files are present."
 echo
 echo "[2/11] Running catalogue consistency check..."
 
-python3 tests/check_catalogue.py
+"${PYTHON}" tests/check_catalogue.py
 
 pass "Catalogue consistency check passed."
 
@@ -197,7 +207,7 @@ for test_file in "${REGRESSION_TESTS[@]}"; do
         || fail "Required regression test missing: ${test_file}"
 
     echo "  Running ${test_file}"
-    python3 "${test_file}"
+    "${PYTHON}" "${test_file}"
 done
 
 pass "Release-critical regression tests passed."
@@ -419,7 +429,7 @@ declare -A EXPECTED_ORCHESTRATORS=(
     [trivy]="/opt/automated-remediation/scanner_orchestrators/trivy_orchestrator.py"
 )
 
-python3 - <<'PY_CHECK'
+"${PYTHON}" - <<'PY_CHECK'
 from pathlib import Path
 import ast
 
@@ -663,7 +673,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_asset_resolver.py \
+"${PYTHON}" tests/test_asset_resolver.py \
     || fail "Deterministic asset resolver regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -671,7 +681,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_enricher_asset_integration.py \
+"${PYTHON}" tests/test_enricher_asset_integration.py \
     || fail "Enricher asset integration regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -679,7 +689,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_asset_context.py \
+"${PYTHON}" tests/test_asset_context.py \
     || fail "Asset context management regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -687,7 +697,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_risk_persistence.py \
+"${PYTHON}" tests/test_risk_persistence.py \
     || fail "Risk persistence regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -695,7 +705,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_risk_reassessment.py \
+"${PYTHON}" tests/test_risk_reassessment.py \
     || fail "Risk reassessment regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -703,17 +713,17 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_risk_aware_remediation_prioritisation.py \
+"${PYTHON}" tests/test_risk_aware_remediation_prioritisation.py \
     || fail "Risk-aware remediation prioritisation regression failed."
 
-python3 tests/test_controller_api_error_codes.py || fail "Controller API error-code regression failed."
+"${PYTHON}" tests/test_controller_api_error_codes.py || fail "Controller API error-code regression failed."
 
 PG_HOST=127.0.0.1 \
 PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_remediation_target_safety.py \
+"${PYTHON}" tests/test_remediation_target_safety.py \
     || fail "Remediation target-safety regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -721,7 +731,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_asset_remediation_readiness.py \
+"${PYTHON}" tests/test_asset_remediation_readiness.py \
     || fail "Asset remediation readiness regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -729,7 +739,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_administrative_readiness_management.py \
+"${PYTHON}" tests/test_administrative_readiness_management.py \
     || fail "Administrative readiness management regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -737,7 +747,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_readiness_admin_api.py \
+"${PYTHON}" tests/test_readiness_admin_api.py \
     || fail "Readiness administrative API regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -745,7 +755,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_scan_coordination_foundation.py \
+"${PYTHON}" tests/test_scan_coordination_foundation.py \
     || fail "Scan coordination foundation regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -753,7 +763,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_scan_execution_lease_safety.py \
+"${PYTHON}" tests/test_scan_execution_lease_safety.py \
     || fail "Scan execution lease-safety regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -761,7 +771,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_scan_coordination_service.py \
+"${PYTHON}" tests/test_scan_coordination_service.py \
     || fail "Scan coordination service regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -769,7 +779,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_scan_subject_resolution.py \
+"${PYTHON}" tests/test_scan_subject_resolution.py \
     || fail "Scan subject resolution regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -777,16 +787,16 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_scan_policy_scheduler.py \
+"${PYTHON}" tests/test_scan_policy_scheduler.py \
     || fail "Scan policy scheduler regression failed."
 
-python3 tests/test_scan_policy_scheduling.py \
+"${PYTHON}" tests/test_scan_policy_scheduling.py \
     || fail "Scan policy scheduling calculation regression failed."
 
-python3 tests/test_scan_policy_scheduler_runtime.py \
+"${PYTHON}" tests/test_scan_policy_scheduler_runtime.py \
     || fail "Scan policy scheduler runtime regression failed."
 
-python3 tests/test_systemd_service_identity.py \
+"${PYTHON}" tests/test_systemd_service_identity.py \
     || fail "Systemd service identity regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -794,7 +804,7 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_scan_execution_node_authentication.py \
+"${PYTHON}" tests/test_scan_execution_node_authentication.py \
     || fail "Scan execution-node authentication regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -802,17 +812,17 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_scan_coordination_agent_api.py \
+"${PYTHON}" tests/test_scan_coordination_agent_api.py \
     || fail "Scan Coordination Agent API regression failed."
 
-python3 tests/test_scan_execution_scanner_adapters.py \
+"${PYTHON}" tests/test_scan_execution_scanner_adapters.py \
     || fail "Scan execution scanner-adapter regression failed."
 
-python3 tests/test_scan_execution_agent.py \
+"${PYTHON}" tests/test_scan_execution_agent.py \
     || fail "Scan execution agent regression failed."
 
 
-python3 tests/test_remediation_dispatcher.py \
+"${PYTHON}" tests/test_remediation_dispatcher.py \
     || fail "Remediation dispatcher regression failed."
 
 PG_HOST=127.0.0.1 \
@@ -820,10 +830,10 @@ PG_PORT=5432 \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
-python3 tests/test_remediation_workflow_orchestration.py \
+"${PYTHON}" tests/test_remediation_workflow_orchestration.py \
     || fail "Remediation workflow orchestration regression failed."
 
-python3 tests/test_risk_contextualisation.py \
+"${PYTHON}" tests/test_risk_contextualisation.py \
     || fail "Risk contextualisation regression failed."
 
 unset PG_PASSWORD
