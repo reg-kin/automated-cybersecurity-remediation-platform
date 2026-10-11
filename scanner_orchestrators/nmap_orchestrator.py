@@ -1489,10 +1489,8 @@ def verify_ftp_anonymous_login(target_host: str, port: int) -> bool:
     try:
         with ftplib.FTP() as ftp:
             ftp.connect(host=target_host, port=port, timeout=15)
-            response = ftp.login(
-                user="anonymous",
-                passwd="anonymous@example.com",
-            )
+            # ftplib supplies its standard anonymous-login password.
+            response = ftp.login(user="anonymous")
             if not response.startswith("230"):
                 raise RuntimeError(
                     "FTP Stage 2 inconclusive: unexpected login response"
