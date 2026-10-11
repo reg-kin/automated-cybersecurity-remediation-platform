@@ -99,7 +99,7 @@
 - name: Disable vsftpd anonymous login
   ansible.builtin.lineinfile:
     path: /etc/vsftpd.conf
-    regexp: '^\\s*anonymous_enable\\s*='
+    regexp: '^[[:space:]]*anonymous_enable[[:space:]]*='
     line: 'anonymous_enable=NO'
     backup: true
   when: remediation_action == 'disable_vsftpd_anonymous'
