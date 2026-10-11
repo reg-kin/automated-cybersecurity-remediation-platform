@@ -908,6 +908,56 @@ class BaseController:
                     verification_payload
                 )
 
+                if (
+                    isinstance(scanner, dict)
+                    and scanner.get("verification_status") == "INCONCLUSIVE"
+                    and "present" in scanner
+                    and scanner["present"] is None
+                    and isinstance(scanner.get("verification_reason"), str)
+                    and scanner["verification_reason"].strip()
+                ):
+                    from manual_verification.service import create_review
+
+                    with conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                """
+                                SELECT tenant_code
+                                FROM unified_security_findings
+                                WHERE finding_id = %s
+                                FOR UPDATE
+                                """,
+                                (p["finding_id"],),
+                            )
+                            row = cur.fetchone()
+                            if row is None:
+                                raise ValueError(
+                                    "Finding not found for manual verification"
+                                )
+                            tenant_code = row[0]
+
+                        review_id = create_review(
+                            conn,
+                            tenant_code=tenant_code,
+                            finding_id=p["finding_id"],
+                            execution_id=execution_id,
+                            verification_id=stage2_id,
+                            verification_result=scanner,
+                        )
+
+                    return {
+                        "success": False,
+                        "execution_id": execution_id,
+                        "stage1": {
+                            "status": "PASSED",
+                            "result": stage1,
+                        },
+                        "stage2": scanner,
+                        "manual_verification_review_id": review_id,
+                        "status": "AWAITING_MANUAL_VERIFICATION",
+                        "error": None,
+                    }
+
                 stage2_passed = (
                     scanner.get(
                         "verification_status"
