@@ -1,0 +1,65 @@
+---
+# Called only after the service-specific systemd identity checks.
+# Inputs: validated_service_port, validated_service_pid, validated_service_process.
+# These must be derived from trusted finding and service inspection data.
+- name: Require authoritative TCP listener identity
+  ansible.builtin.assert:
+    that:
+      - validated_service_port is defined
+      - validated_service_port | string is match('^[0-9]{1,5}$')
+      - validated_service_port | int >= 1
+      - validated_service_port | int <= 65535
+      - validated_service_pid is defined
+      - validated_service_pid | string is match('^[1-9][0-9]*$')
+      - validated_service_process is defined
+      - validated_service_process | string is match('^[a-zA-Z0-9_.-]+$')
+    fail_msg: Trusted service listener identity is missing or invalid
+
+- name: Inspect TCP listening sockets and owning processes
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -H
+      - -l
+      - -n
+      - -t
+      - -p
+  register: service_tcp_socket_snapshot
+  changed_when: false
+
+- name: Select exact local TCP port listeners
+  ansible.builtin.set_fact:
+    service_matching_tcp_sockets: >-
+      {{
+        service_tcp_socket_snapshot.stdout_lines
+        | select(
+            'search',
+            '^[^ ]+[ ]+[^ ]+[ ]+[^ ]+[ ]+[^ ]+:' ~
+            (validated_service_port | string) ~ '[ ]+'
+          )
+        | list
+      }}
+
+- name: Require exclusive ownership by expected systemd process
+  ansible.builtin.assert:
+    that:
+      - service_matching_tcp_sockets | length > 0
+      - >-
+        (
+          service_matching_tcp_sockets
+          | reject(
+              'search',
+              'users:\\(\\("' ~ validated_service_process ~
+              '",pid=' ~ (validated_service_pid | string) ~ ',fd=[0-9]+\\)\\)'
+            )
+          | list | length
+        ) == 0
+      - >-
+        (
+          service_matching_tcp_sockets
+          | map('regex_findall', 'pid=[0-9]+')
+          | map('length')
+          | reject('equalto', 1)
+          | list | length
+        ) == 0
+    fail_msg: TCP listener is absent, ambiguous or owned by another process
