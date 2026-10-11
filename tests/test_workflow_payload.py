@@ -24,6 +24,7 @@ def make_queue_row():
         "rule_id": 7,
         "tenant_code": "CUSTOMER_A",
         "target_host": "10.20.30.15",
+        "execution_target": "10.20.30.15",
         "engine_source": "wazuh_vulnerability",
         "finding_class": "package_vulnerability",
         "finding_key": "CVE-2023-4863",
@@ -63,6 +64,7 @@ assert payload == {
     "rule_id": 7,
     "tenant_code": "CUSTOMER_A",
     "target_host": "10.20.30.15",
+        "execution_target": "10.20.30.15",
     "engine_source": "wazuh_vulnerability",
     "finding_class": "package_vulnerability",
     "finding_key": "CVE-2023-4863",
@@ -83,6 +85,8 @@ assert payload == {
 }
 
 assert row == original
+
+assert payload["execution_target"] == "10.20.30.15"
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +147,20 @@ else:
     raise AssertionError(
         "Expected WorkflowPayloadError for missing rule_id"
     )
+
+
+# ---------------------------------------------------------------------------
+# Missing execution target must fail closed
+# ---------------------------------------------------------------------------
+
+broken = make_queue_row()
+del broken["execution_target"]
+try:
+    build_controller_payload(broken)
+except WorkflowPayloadError as exc:
+    assert "execution_target" in str(exc)
+else:
+    raise AssertionError("Expected WorkflowPayloadError for missing execution_target")
 
 
 # ---------------------------------------------------------------------------
