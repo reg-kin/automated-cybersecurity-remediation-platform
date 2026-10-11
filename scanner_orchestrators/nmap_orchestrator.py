@@ -1321,55 +1321,6 @@ def run_scan_mode(
         verbose=verbose,
     )
 
-    if script_id == "ftp-anon":
-        # A missing ftp-anon NSE result is not evidence of remediation.
-        # Require the exact original finding and an open TCP FTP port
-        # before independently attempting anonymous authentication.
-        if (
-            finding_key != f"NMAP-NSE:ftp-anon:{ports}/tcp"
-            or finding_class != "service_misconfiguration"
-            or ports is None
-            or not re.fullmatch(r"[0-9]{1,5}", ports)
-            or not 1 <= int(ports) <= 65535
-            or engine_metadata.get("protocol", "tcp") != "tcp"
-        ):
-            raise ValueError(
-                "FTP Stage 2 requires an exact ftp-anon TCP finding and port"
-            )
-
-        for host in verification_hosts:
-            matching_ports = [
-                p for p in host.findall("./ports/port")
-                if p.get("protocol") == "tcp"
-                and p.get("portid") == str(int(ports))
-                and p.find("./state") is not None
-                and p.find("./state").get("state") == "open"
-            ]
-            if len(matching_ports) != 1:
-                raise RuntimeError(
-                    "FTP Stage 2 inconclusive: original TCP port not confirmed open"
-                )
-
-        present = verify_ftp_anonymous_login(target_host, int(ports))
-        return {
-            "present": present,
-            "finding_key": finding_key,
-            "finding_class": finding_class,
-            "scanner": "nmap_nse",
-            "target_host": target_host,
-            "verified_at": utc_now(),
-            "evidence": {
-                "script_id": script_id,
-                "port": int(ports),
-                "protocol": "tcp",
-                "verification_method": "ftp_anonymous_authentication",
-                "authentication_result": (
-                    "anonymous_login_accepted"
-                    if present else "anonymous_login_rejected_530"
-                ),
-            },
-        }
-
     script_results = collect_script_results(
         xml_text
     )
@@ -1674,6 +1625,55 @@ def run_verify_mode(
                 "Nmap Stage 2 verification inconclusive: "
                 "target host is not confirmed up"
             )
+
+    if script_id == "ftp-anon":
+        # A missing ftp-anon NSE result is not evidence of remediation.
+        # Require the exact original finding and an open TCP FTP port
+        # before independently attempting anonymous authentication.
+        if (
+            finding_key != f"NMAP-NSE:ftp-anon:{ports}/tcp"
+            or finding_class != "service_misconfiguration"
+            or ports is None
+            or not re.fullmatch(r"[0-9]{1,5}", ports)
+            or not 1 <= int(ports) <= 65535
+            or engine_metadata.get("protocol", "tcp") != "tcp"
+        ):
+            raise ValueError(
+                "FTP Stage 2 requires an exact ftp-anon TCP finding and port"
+            )
+
+        for host in verification_hosts:
+            matching_ports = [
+                p for p in host.findall("./ports/port")
+                if p.get("protocol") == "tcp"
+                and p.get("portid") == str(int(ports))
+                and p.find("./state") is not None
+                and p.find("./state").get("state") == "open"
+            ]
+            if len(matching_ports) != 1:
+                raise RuntimeError(
+                    "FTP Stage 2 inconclusive: original TCP port not confirmed open"
+                )
+
+        present = verify_ftp_anonymous_login(target_host, int(ports))
+        return {
+            "present": present,
+            "finding_key": finding_key,
+            "finding_class": finding_class,
+            "scanner": "nmap_nse",
+            "target_host": target_host,
+            "verified_at": utc_now(),
+            "evidence": {
+                "script_id": script_id,
+                "port": int(ports),
+                "protocol": "tcp",
+                "verification_method": "ftp_anonymous_authentication",
+                "authentication_result": (
+                    "anonymous_login_accepted"
+                    if present else "anonymous_login_rejected_530"
+                ),
+            },
+        }
 
     script_results = collect_script_results(
         xml_text
