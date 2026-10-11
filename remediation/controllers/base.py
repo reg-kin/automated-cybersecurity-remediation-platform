@@ -63,6 +63,41 @@ def verification_strategy(p):
     return "IMMEDIATE"
 
 
+
+def validated_ftp_port(finding):
+    """
+    Derive the FTP TCP port exclusively from a persisted Nmap finding.
+    Do not trust caller-supplied execution_parameters or engine_metadata.
+    """
+    import re
+
+    metadata = finding.get("engine_metadata")
+    if not isinstance(metadata, dict):
+        raise ValueError("FTP finding metadata is missing or invalid")
+
+    port = metadata.get("port")
+    if isinstance(port, bool) or not isinstance(port, (str, int)):
+        raise ValueError("FTP finding port must be a decimal TCP port")
+    port_text = str(port)
+    if not re.fullmatch(r"[0-9]{1,5}", port_text):
+        raise ValueError("FTP finding port is invalid")
+    port_number = int(port_text)
+    if not 1 <= port_number <= 65535:
+        raise ValueError("FTP finding port is out of range")
+
+    if (
+        finding.get("engine_source") != "nmap_nse"
+        or finding.get("finding_class") != "service_misconfiguration"
+        or metadata.get("script_id") != "ftp-anon"
+        or metadata.get("protocol") != "tcp"
+        or finding.get("finding_key")
+        != f"NMAP-NSE:ftp-anon:{port_number}/tcp"
+    ):
+        raise ValueError("FTP finding identity and port metadata disagree")
+
+    return port_number
+
+
 class BaseController:
     capability = None
 
@@ -583,6 +618,20 @@ class BaseController:
                     p["remediation_action"]
                 ),
             }
+
+            if p["remediation_action"] == "disable_vsftpd_anonymous":
+                # Re-read the persisted finding at execution time,
+                # including after approval. Caller-supplied port
+                # and metadata are never authoritative.
+                with conn:
+                    ftp_finding = db.get_finding(conn, p["finding_id"])
+                if (
+                    p["engine_source"] != ftp_finding["engine_source"]
+                    or p["finding_class"] != ftp_finding["finding_class"]
+                    or p["finding_key"] != ftp_finding["finding_key"]
+                ):
+                    raise ValueError("FTP execution does not match persisted finding")
+                extra["validated_ftp_port"] = validated_ftp_port(ftp_finding)
 
             # Stage 1 verification row is created before
             # Ansible execution and completed in place.
