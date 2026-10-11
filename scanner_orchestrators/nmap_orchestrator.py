@@ -383,6 +383,7 @@ def output_indicates_positive_finding(
 
     positive_markers = (
         "authentication bypass", "anonymous login allowed",
+        "anonymous ftp login allowed",
         "default credential", "weak cipher", "weak encryption",
         "expired certificate", "self-signed certificate",
         "hostname mismatch", "directory traversal", "path traversal",
@@ -640,6 +641,7 @@ def determine_finding_class(
         marker in text
         for marker in (
             "anonymous login allowed",
+            "anonymous ftp login allowed",
             "http trace enabled",
             "directory listing",
             "unsafe method",
