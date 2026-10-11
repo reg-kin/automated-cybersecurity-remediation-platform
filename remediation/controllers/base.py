@@ -596,6 +596,19 @@ class BaseController:
         conn = db.connect()
 
         try:
+            if p["remediation_action"] == "disable_vsftpd_anonymous":
+                # Fail before transitioning a queued execution to RUNNING.
+                # Approval continuation also uses persisted finding data.
+                with conn:
+                    ftp_finding = db.get_finding(conn, p["finding_id"])
+                if (
+                    p["engine_source"] != ftp_finding["engine_source"]
+                    or p["finding_class"] != ftp_finding["finding_class"]
+                    or p["finding_key"] != ftp_finding["finding_key"]
+                ):
+                    raise ValueError("FTP execution does not match persisted finding")
+                validated_port = validated_ftp_port(ftp_finding)
+
             if not already_running:
                 with conn:
                     db.update_execution_status(
@@ -619,19 +632,9 @@ class BaseController:
                 ),
             }
 
+
             if p["remediation_action"] == "disable_vsftpd_anonymous":
-                # Re-read the persisted finding at execution time,
-                # including after approval. Caller-supplied port
-                # and metadata are never authoritative.
-                with conn:
-                    ftp_finding = db.get_finding(conn, p["finding_id"])
-                if (
-                    p["engine_source"] != ftp_finding["engine_source"]
-                    or p["finding_class"] != ftp_finding["finding_class"]
-                    or p["finding_key"] != ftp_finding["finding_key"]
-                ):
-                    raise ValueError("FTP execution does not match persisted finding")
-                extra["validated_ftp_port"] = validated_ftp_port(ftp_finding)
+                extra["validated_ftp_port"] = validated_port
 
             # Stage 1 verification row is created before
             # Ansible execution and completed in place.
