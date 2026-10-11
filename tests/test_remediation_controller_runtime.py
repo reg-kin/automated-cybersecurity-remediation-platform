@@ -166,7 +166,7 @@ ftp_controller = type(
     "FTPController", (base.BaseController,), {"capability": "service_config"}
 )()
 ftp_finding = finding(
-    engine_source="nmap",
+    engine_source="nmap_nse",
     finding_class="service_misconfiguration",
     finding_key="NMAP-NSE:ftp-anon:21/tcp",
     engine_metadata={"script_id": "ftp-anon", "product": "vsftpd"},
@@ -181,7 +181,7 @@ ftp_rule = rule(
     approval_required=True,
 )
 ftp_payload = payload(
-    engine_source="nmap",
+    engine_source="nmap_nse",
     finding_class="service_misconfiguration",
     finding_key="NMAP-NSE:ftp-anon:21/tcp",
     capability="service_config",
