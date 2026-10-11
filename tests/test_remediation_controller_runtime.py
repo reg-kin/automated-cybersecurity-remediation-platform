@@ -161,6 +161,42 @@ expect_value_error(
 )
 
 
+# Nmap ftp-anon must not execute via a generic service rule.
+ftp_controller = type(
+    "FTPController", (base.BaseController,), {"capability": "service_config"}
+)()
+ftp_finding = finding(
+    engine_source="nmap",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:21/tcp",
+    engine_metadata={"script_id": "ftp-anon", "product": "vsftpd"},
+)
+ftp_rule = rule(
+    finding_class="service_misconfiguration",
+    capability="service_config",
+    playbook_name="service_config.yml",
+    remediation_action="apply_configuration",
+    required_parameters=["config_file"],
+    automation_tier="TIER_2",
+    approval_required=True,
+)
+ftp_payload = payload(
+    engine_source="nmap",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:21/tcp",
+    capability="service_config",
+    playbook_name="service_config.yml",
+    remediation_action="apply_configuration",
+    automation_tier="TIER_2",
+    approval_required=True,
+    execution_parameters={"config_file": "/etc/vsftpd.conf"},
+)
+expect_value_error(
+    lambda: ftp_controller.validate(ftp_payload, ftp_rule, ftp_finding),
+    "requires server-validated remediation",
+)
+print("PASS: generic ftp-anon remediation fails closed")
+
 # ---------------------------------------------------------------------------
 # Approval gate: persist execution but do not invoke Ansible
 # ---------------------------------------------------------------------------
