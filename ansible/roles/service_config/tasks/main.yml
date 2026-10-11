@@ -50,6 +50,33 @@
     fail_msg: Unsupported vsftpd installation or configuration; refusing remediation
   when: remediation_action == 'disable_vsftpd_anonymous'
 
+# Fail closed unless systemd identifies the running daemon as the
+# expected executable with the expected configuration. This does not
+# establish network-port ownership; routing remains disabled.
+- name: Inspect running vsftpd service
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - show
+      - vsftpd.service
+      - --property=ActiveState
+      - --property=MainPID
+      - --property=ExecStart
+      - --no-pager
+  register: vsftpd_systemd
+  changed_when: false
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
+- name: Require active standard vsftpd systemd service
+  ansible.builtin.assert:
+    that:
+      - "'ActiveState=active' in vsftpd_systemd.stdout_lines"
+      - "vsftpd_systemd.stdout is search('MainPID=[1-9][0-9]*')"
+      - "vsftpd_systemd.stdout is search('ExecStart=.*path=/usr/sbin/vsftpd[ ;]')"
+      - "vsftpd_systemd.stdout is search('ExecStart=.*argv\\[\\]=/usr/sbin/vsftpd /etc/vsftpd.conf[ ;]')"
+    fail_msg: Running vsftpd service identity or configuration path cannot be established
+  when: remediation_action == 'disable_vsftpd_anonymous'
+
 - name: Disable vsftpd anonymous login
   ansible.builtin.lineinfile:
     path: /etc/vsftpd.conf
