@@ -64,38 +64,59 @@ def verification_strategy(p):
 
 
 
-def validated_ftp_port(finding):
+def validated_nmap_service_identity(finding, expected_script_id):
     """
-    Derive the FTP TCP port exclusively from a persisted Nmap finding.
-    Do not trust caller-supplied execution_parameters or engine_metadata.
+    Validate a persisted Nmap NSE service finding against its own key.
+
+    Return validated script, protocol and port. The caller must supply
+    the explicitly supported script; never infer an authorised action
+    from arbitrary scanner metadata.
     """
     import re
 
+    if (
+        not isinstance(expected_script_id, str)
+        or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", expected_script_id)
+    ):
+        raise ValueError("Expected Nmap script identity is invalid")
+
     metadata = finding.get("engine_metadata")
     if not isinstance(metadata, dict):
-        raise ValueError("FTP finding metadata is missing or invalid")
+        raise ValueError("Nmap service finding metadata is missing or invalid")
 
     port = metadata.get("port")
     if isinstance(port, bool) or not isinstance(port, (str, int)):
-        raise ValueError("FTP finding port must be a decimal TCP port")
+        raise ValueError("Nmap service finding port must be a decimal TCP port")
     port_text = str(port)
     if not re.fullmatch(r"[0-9]{1,5}", port_text):
-        raise ValueError("FTP finding port is invalid")
+        raise ValueError("Nmap service finding port is invalid")
     port_number = int(port_text)
     if not 1 <= port_number <= 65535:
-        raise ValueError("FTP finding port is out of range")
+        raise ValueError("Nmap service finding port is out of range")
+
+    protocol = metadata.get("protocol")
+    if protocol != "tcp":
+        raise ValueError("Nmap service finding identity and port metadata disagree")
 
     if (
         finding.get("engine_source") != "nmap_nse"
         or finding.get("finding_class") != "service_misconfiguration"
-        or metadata.get("script_id") != "ftp-anon"
-        or metadata.get("protocol") != "tcp"
+        or metadata.get("script_id") != expected_script_id
         or finding.get("finding_key")
-        != f"NMAP-NSE:ftp-anon:{port_number}/tcp"
+        != f"NMAP-NSE:{expected_script_id}:{port_number}/{protocol}"
     ):
-        raise ValueError("FTP finding identity and port metadata disagree")
+        raise ValueError("Nmap service finding identity and port metadata disagree")
 
-    return port_number
+    return {
+        "script_id": expected_script_id,
+        "protocol": protocol,
+        "port": port_number,
+    }
+
+
+def validated_ftp_port(finding):
+    """FTP-specific policy on top of reusable Nmap service validation."""
+    return validated_nmap_service_identity(finding, "ftp-anon")["port"]
 
 
 class BaseController:
