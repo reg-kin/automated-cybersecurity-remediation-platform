@@ -350,6 +350,65 @@ assert (
 )
 
 # ---------------------------------------------------------------------------
+# Approval continuation must reject legacy generic FTP executions
+# ---------------------------------------------------------------------------
+
+legacy_ftp_execution = {
+    "finding_id": 101,
+    "rule_id": 10,
+    "target_host": "192.0.2.200",
+    "capability": "service_config",
+    "playbook_name": "service_config.yml",
+    "remediation_action": "set_config_line",
+    "automation_tier": "TIER_2",
+    "execution_parameters": {},
+    "status": "AWAITING_APPROVAL",
+}
+
+legacy_ftp_finding = finding(
+    lifecycle_status="IN_REMEDIATION",
+    engine_source="nmap_nse",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:21/tcp",
+)
+
+ftp_status_update = Mock()
+ftp_execute_existing = Mock()
+
+with (
+    patch.object(base.db, "connect", return_value=DummyConnection()),
+    patch.object(
+        base.db,
+        "get_execution_for_approval",
+        return_value=legacy_ftp_execution,
+    ),
+    patch.object(
+        base.db,
+        "get_finding",
+        return_value=legacy_ftp_finding,
+    ),
+    patch.object(
+        base.db,
+        "update_execution_status",
+        ftp_status_update,
+    ),
+    patch.object(
+        ftp_controller,
+        "execute_existing",
+        ftp_execute_existing,
+    ),
+):
+    expect_value_error(
+        lambda: ftp_controller.approve(305),
+        "generic configuration execution is prohibited",
+    )
+
+ftp_status_update.assert_not_called()
+ftp_execute_existing.assert_not_called()
+print("PASS: legacy generic FTP approval fails before RUNNING")
+
+
+# ---------------------------------------------------------------------------
 # Approval continuation preserves execution/scanner target separation
 # ---------------------------------------------------------------------------
 

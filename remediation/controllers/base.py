@@ -534,6 +534,19 @@ class BaseController:
                         f"{finding['lifecycle_status']}"
                     )
 
+                # Revalidate persisted findings before approval continuation.
+                # Existing executions may predate the initial-request guard.
+                if (
+                    finding["engine_source"] in ("nmap_nse", "nmap")
+                    and finding["finding_class"] == "service_misconfiguration"
+                    and str(finding["finding_key"]).startswith("NMAP-NSE:ftp-anon:")
+                    and execution["remediation_action"] != "disable_vsftpd_anonymous"
+                ):
+                    raise ValueError(
+                        "Nmap ftp-anon requires server-validated remediation; "
+                        "generic configuration execution is prohibited"
+                    )
+
                 db.update_execution_status(
                     conn,
                     execution_id,
