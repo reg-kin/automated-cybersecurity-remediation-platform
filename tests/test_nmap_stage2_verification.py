@@ -147,6 +147,97 @@ def test_mixed_nse_state_precedence():
         )
 
 
+FTP_METADATA = {"script_id": "ftp-anon", "port": "21", "protocol": "tcp"}
+FTP_KEY = "NMAP-NSE:ftp-anon:21/tcp"
+FTP_XML = """
+<nmaprun scanner="nmap"><host><status state="up"/>
+<address addr="192.0.2.20" addrtype="ipv4"/>
+<ports><port protocol="tcp" portid="21"><state state="open"/>
+</port></ports></host></nmaprun>
+"""
+
+
+def verify_ftp(xml_text=FTP_XML, metadata=None, finding_key=FTP_KEY):
+    with patch.object(nmap, "run_nmap", return_value=xml_text):
+        return nmap.run_verify_mode(
+            "192.0.2.20", finding_key, "service_misconfiguration",
+            metadata if metadata is not None else FTP_METADATA, False,
+        )
+
+
+def test_ftp_anonymous_login_accepted():
+    with patch.object(nmap, "verify_ftp_anonymous_login", return_value=True) as probe:
+        result = verify_ftp()
+    assert result["present"] is True
+    assert result["evidence"]["authentication_result"] == "anonymous_login_accepted"
+    probe.assert_called_once_with("192.0.2.20", 21)
+
+
+def test_ftp_anonymous_login_rejected():
+    with patch.object(nmap, "verify_ftp_anonymous_login", return_value=False) as probe:
+        result = verify_ftp()
+    assert result["present"] is False
+    assert result["evidence"]["authentication_result"] == "anonymous_login_rejected_530"
+    probe.assert_called_once_with("192.0.2.20", 21)
+
+
+def test_ftp_inconclusive_fails_closed():
+    with patch.object(nmap, "verify_ftp_anonymous_login", side_effect=RuntimeError("timeout")):
+        try:
+            verify_ftp()
+        except RuntimeError:
+            return
+    raise AssertionError("FTP Stage 2 accepted an inconclusive authentication probe")
+
+
+def test_ftp_rejects_wrong_key_and_port_range():
+    with patch.object(nmap, "verify_ftp_anonymous_login") as probe:
+        for metadata, key in [
+            (FTP_METADATA, "NMAP-NSE:ftp-anon:22/tcp"),
+            ({"script_id": "ftp-anon", "port": "20-21"}, FTP_KEY),
+        ]:
+            try:
+                verify_ftp(metadata=metadata, finding_key=key)
+            except (ValueError, RuntimeError):
+                continue
+            raise AssertionError("FTP Stage 2 accepted invalid finding scope")
+        probe.assert_not_called()
+
+
+def test_ftp_closed_port_fails_closed():
+    xml = FTP_XML.replace('state="open"', 'state="closed"')
+    with patch.object(nmap, "verify_ftp_anonymous_login") as probe:
+        try:
+            verify_ftp(xml_text=xml)
+        except RuntimeError:
+            probe.assert_not_called()
+            return
+    raise AssertionError("FTP Stage 2 accepted closed port")
+
+
+def test_ftp_probe_response_handling():
+    from ftplib import error_perm
+    from unittest.mock import MagicMock
+    for response, expected in [("230 Login successful", True), ("530 Login incorrect", False)]:
+        ftp = MagicMock()
+        ftp.__enter__.return_value = ftp
+        ftp.login.return_value = response
+        if response.startswith("530"):
+            ftp.login.side_effect = error_perm(response)
+        with patch.object(nmap.ftplib, "FTP", return_value=ftp):
+            assert nmap.verify_ftp_anonymous_login("192.0.2.20", 21) is expected
+    for error in [TimeoutError("timed out"), error_perm("550 File unavailable")]:
+        ftp = MagicMock()
+        ftp.__enter__.return_value = ftp
+        ftp.login.side_effect = error
+        with patch.object(nmap.ftplib, "FTP", return_value=ftp):
+            try:
+                nmap.verify_ftp_anonymous_login("192.0.2.20", 21)
+            except RuntimeError:
+                continue
+            raise AssertionError("FTP Stage 2 accepted ambiguous authentication error")
+
+
 if __name__ == "__main__":
     test_mixed_nse_state_precedence()
     print("PASS: mixed NSE state precedence")
@@ -165,3 +256,16 @@ if __name__ == "__main__":
 
     test_missing_host_evidence_must_fail_closed()
     print("PASS: missing host evidence fails closed")
+
+    test_ftp_anonymous_login_accepted()
+    print("PASS: FTP anonymous login remains enabled")
+    test_ftp_anonymous_login_rejected()
+    print("PASS: FTP anonymous login explicitly rejected")
+    test_ftp_inconclusive_fails_closed()
+    print("PASS: FTP inconclusive probe fails closed")
+    test_ftp_rejects_wrong_key_and_port_range()
+    print("PASS: FTP verification scope validated")
+    test_ftp_closed_port_fails_closed()
+    print("PASS: FTP closed port fails closed")
+    test_ftp_probe_response_handling()
+    print("PASS: FTP authentication responses classified")

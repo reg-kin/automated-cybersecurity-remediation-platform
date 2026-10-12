@@ -161,6 +161,162 @@ expect_value_error(
 )
 
 
+# Nmap ftp-anon must not execute via a generic service rule.
+ftp_controller = type(
+    "FTPController", (base.BaseController,), {"capability": "service_config"}
+)()
+ftp_finding = finding(
+    engine_source="nmap_nse",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:21/tcp",
+    engine_metadata={"script_id": "ftp-anon", "product": "vsftpd"},
+)
+ftp_rule = rule(
+    finding_class="service_misconfiguration",
+    capability="service_config",
+    playbook_name="service_config.yml",
+    remediation_action="apply_configuration",
+    required_parameters=["config_file"],
+    automation_tier="TIER_2",
+    approval_required=True,
+)
+ftp_payload = payload(
+    engine_source="nmap_nse",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:21/tcp",
+    capability="service_config",
+    playbook_name="service_config.yml",
+    remediation_action="apply_configuration",
+    automation_tier="TIER_2",
+    approval_required=True,
+    execution_parameters={"config_file": "/etc/vsftpd.conf"},
+)
+expect_value_error(
+    lambda: ftp_controller.validate(ftp_payload, ftp_rule, ftp_finding),
+    "requires server-validated remediation",
+)
+print("PASS: generic ftp-anon remediation fails closed")
+
+# Specialised FTP remediation must be backed by an approval-gated rule.
+specialised_ftp_rule = rule(
+    finding_class="service_misconfiguration",
+    capability="service_config",
+    playbook_name="service_config.yml",
+    remediation_action="disable_vsftpd_anonymous",
+    required_parameters=[],
+    automation_tier="TIER_2",
+    approval_required=True,
+)
+
+specialised_ftp_payload = payload(
+    engine_source="nmap_nse",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:21/tcp",
+    capability="service_config",
+    playbook_name="service_config.yml",
+    remediation_action="disable_vsftpd_anonymous",
+    automation_tier="TIER_2",
+    approval_required=True,
+)
+
+ftp_controller.validate(
+    specialised_ftp_payload,
+    specialised_ftp_rule,
+    ftp_finding,
+)
+
+expect_value_error(
+    lambda: ftp_controller.validate(
+        {**specialised_ftp_payload, "approval_required": False},
+        {**specialised_ftp_rule, "approval_required": False},
+        ftp_finding,
+    ),
+    "generic configuration execution is prohibited",
+)
+
+expect_value_error(
+    lambda: ftp_controller.validate(
+        {**specialised_ftp_payload, "approved": True},
+        specialised_ftp_rule,
+        ftp_finding,
+    ),
+    "cannot self-approve",
+)
+
+print("PASS: specialised FTP validation requires approval")
+
+
+# Persisted Nmap finding metadata must be the sole source of the FTP port.
+ftp_authoritative = finding(
+    engine_source="nmap_nse",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:2121/tcp",
+    engine_metadata={
+        "script_id": "ftp-anon",
+        "port": "2121",
+        "protocol": "tcp",
+    },
+)
+assert base.validated_ftp_port(ftp_authoritative) == 2121
+for changes, expected in [
+    ({"finding_key": "NMAP-NSE:ftp-anon:21/tcp"}, "disagree"),
+    ({"engine_source": "nmap"}, "disagree"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": "0", "protocol": "tcp"}}, "range"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": "65536", "protocol": "tcp"}}, "range"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": "21;id", "protocol": "tcp"}}, "invalid"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": True, "protocol": "tcp"}}, "decimal"),
+    ({"engine_metadata": {"script_id": "ftp-anon", "port": "2121", "protocol": "udp"}}, "disagree"),
+    ({"engine_metadata": {"script_id": "other", "port": "2121", "protocol": "tcp"}}, "disagree"),
+    ({"engine_metadata": {}}, "decimal"),
+]:
+    expect_value_error(
+        lambda changes=changes: base.validated_ftp_port(
+            {**ftp_authoritative, **changes}
+        ),
+        expected,
+    )
+print("PASS: FTP port validation rejects inconsistent persisted metadata")
+
+# The common contract also validates other explicitly selected Nmap scripts.
+ssh_finding = {
+    **ftp_authoritative,
+    "finding_key": "NMAP-NSE:ssh-auth-methods:2222/tcp",
+    "engine_metadata": {
+        "script_id": "ssh-auth-methods",
+        "port": 2222,
+        "protocol": "tcp",
+    },
+}
+assert base.validated_nmap_service_identity(
+    ssh_finding, "ssh-auth-methods"
+) == {
+    "script_id": "ssh-auth-methods",
+    "port": 2222,
+    "protocol": "tcp",
+}
+expect_value_error(
+    lambda: base.validated_nmap_service_identity(
+        ssh_finding, "ftp-anon"
+    ),
+    "disagree",
+)
+expect_value_error(
+    lambda: base.validated_nmap_service_identity(
+        ssh_finding, "../ssh"
+    ),
+    "invalid",
+)
+expect_value_error(
+    lambda: base.validated_nmap_service_identity(
+        {**ssh_finding, "finding_key": "NMAP-NSE:ssh-auth-methods:22/tcp"},
+        "ssh-auth-methods",
+    ),
+    "disagree",
+)
+print("PASS: reusable Nmap service identity contract validates selected scripts")
+
+
+
 # ---------------------------------------------------------------------------
 # Approval gate: persist execution but do not invoke Ansible
 # ---------------------------------------------------------------------------
@@ -241,6 +397,65 @@ assert (
     created_payload["target_host"]
     == "192.0.2.10"
 )
+
+# ---------------------------------------------------------------------------
+# Approval continuation must reject legacy generic FTP executions
+# ---------------------------------------------------------------------------
+
+legacy_ftp_execution = {
+    "finding_id": 101,
+    "rule_id": 10,
+    "target_host": "192.0.2.200",
+    "capability": "service_config",
+    "playbook_name": "service_config.yml",
+    "remediation_action": "set_config_line",
+    "automation_tier": "TIER_2",
+    "execution_parameters": {},
+    "status": "AWAITING_APPROVAL",
+}
+
+legacy_ftp_finding = finding(
+    lifecycle_status="IN_REMEDIATION",
+    engine_source="nmap_nse",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:21/tcp",
+)
+
+ftp_status_update = Mock()
+ftp_execute_existing = Mock()
+
+with (
+    patch.object(base.db, "connect", return_value=DummyConnection()),
+    patch.object(
+        base.db,
+        "get_execution_for_approval",
+        return_value=legacy_ftp_execution,
+    ),
+    patch.object(
+        base.db,
+        "get_finding",
+        return_value=legacy_ftp_finding,
+    ),
+    patch.object(
+        base.db,
+        "update_execution_status",
+        ftp_status_update,
+    ),
+    patch.object(
+        ftp_controller,
+        "execute_existing",
+        ftp_execute_existing,
+    ),
+):
+    expect_value_error(
+        lambda: ftp_controller.approve(305),
+        "generic configuration execution is prohibited",
+    )
+
+ftp_status_update.assert_not_called()
+ftp_execute_existing.assert_not_called()
+print("PASS: legacy generic FTP approval fails before RUNNING")
+
 
 # ---------------------------------------------------------------------------
 # Approval continuation preserves execution/scanner target separation

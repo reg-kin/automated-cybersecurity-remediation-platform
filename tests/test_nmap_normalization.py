@@ -181,8 +181,55 @@ def test_ms17_010_normalization() -> None:
     assert payload["ai_analysis"] is None
 
 
+
+def test_ftp_anonymous_access_normalization() -> None:
+    """Regression for actual Nmap 7.98 ftp-anon positive output."""
+    nmap = import_nmap_orchestrator()
+    output = "Anonymous FTP login allowed (FTP code 230)"
+    assert nmap.output_indicates_positive_finding("ftp-anon", output)
+    assert nmap.determine_finding_class("ftp-anon", output, "ftp", "21") == "service_misconfiguration"
+
+    xml_text = """<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <status state="up"/>
+    <address addr="172.24.0.2" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="21">
+        <state state="open"/>
+        <service name="ftp"/>
+        <script id="ftp-anon" output="Anonymous FTP login allowed (FTP code 230)"/>
+      </port>
+    </ports>
+  </host>
+</nmaprun>"""
+    results = nmap.collect_script_results(xml_text)
+    assert len(results) == 1
+    findings = nmap.normalize_results(
+        script_results=results,
+        tenant_code="TEST-TENANT",
+        service_tier="STANDARD",
+        task_name="Nmap FTP Anonymous Access Regression Test",
+        requested_target="172.24.0.2",
+        scan_mode="specific",
+        requested_script="ftp-anon",
+        requested_finding_key=None,
+    )
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["engine_source"] == "nmap_nse"
+    assert finding["finding_class"] == "service_misconfiguration"
+    assert finding["engine_metadata"]["script_id"] == "ftp-anon"
+    assert finding["engine_metadata"]["port"] == "21"
+
+    # Do not classify a script name alone as positive evidence.
+    assert not nmap.output_indicates_positive_finding("ftp-anon", "Anonymous FTP login denied")
+    assert not nmap.output_indicates_positive_finding("ftp-anon", "530 Login incorrect")
+
+
 def main() -> int:
     test_ms17_010_normalization()
+    test_ftp_anonymous_access_normalization()
 
     print(
         "PASS: Nmap MS17-010 XML normalises "

@@ -63,6 +63,62 @@ def verification_strategy(p):
     return "IMMEDIATE"
 
 
+
+def validated_nmap_service_identity(finding, expected_script_id):
+    """
+    Validate a persisted Nmap NSE service finding against its own key.
+
+    Return validated script, protocol and port. The caller must supply
+    the explicitly supported script; never infer an authorised action
+    from arbitrary scanner metadata.
+    """
+    import re
+
+    if (
+        not isinstance(expected_script_id, str)
+        or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", expected_script_id)
+    ):
+        raise ValueError("Expected Nmap script identity is invalid")
+
+    metadata = finding.get("engine_metadata")
+    if not isinstance(metadata, dict):
+        raise ValueError("Nmap service finding metadata is missing or invalid")
+
+    port = metadata.get("port")
+    if isinstance(port, bool) or not isinstance(port, (str, int)):
+        raise ValueError("Nmap service finding port must be a decimal TCP port")
+    port_text = str(port)
+    if not re.fullmatch(r"[0-9]{1,5}", port_text):
+        raise ValueError("Nmap service finding port is invalid")
+    port_number = int(port_text)
+    if not 1 <= port_number <= 65535:
+        raise ValueError("Nmap service finding port is out of range")
+
+    protocol = metadata.get("protocol")
+    if protocol != "tcp":
+        raise ValueError("Nmap service finding identity and port metadata disagree")
+
+    if (
+        finding.get("engine_source") != "nmap_nse"
+        or finding.get("finding_class") != "service_misconfiguration"
+        or metadata.get("script_id") != expected_script_id
+        or finding.get("finding_key")
+        != f"NMAP-NSE:{expected_script_id}:{port_number}/{protocol}"
+    ):
+        raise ValueError("Nmap service finding identity and port metadata disagree")
+
+    return {
+        "script_id": expected_script_id,
+        "protocol": protocol,
+        "port": port_number,
+    }
+
+
+def validated_ftp_port(finding):
+    """FTP-specific policy on top of reusable Nmap service validation."""
+    return validated_nmap_service_identity(finding, "ftp-anon")["port"]
+
+
 class BaseController:
     capability = None
 
@@ -227,6 +283,23 @@ class BaseController:
                 "manual_escalation is a human remediation "
                 "workflow and cannot be executed by the "
                 "remediation controller"
+            )
+
+        # Nmap ftp-anon confirms anonymous login, not the FTP daemon or
+        # its configuration path. Block generic configuration execution
+        # until a server-validated remediation capability is available.
+        if (
+            finding["engine_source"] in ("nmap_nse", "nmap")
+            and finding["finding_class"] == "service_misconfiguration"
+            and str(finding["finding_key"]).startswith("NMAP-NSE:ftp-anon:")
+            and not (
+                rule["remediation_action"] == "disable_vsftpd_anonymous"
+                and rule["approval_required"]
+            )
+        ):
+            raise ValueError(
+                "Nmap ftp-anon requires server-validated remediation; "
+                "generic configuration execution is prohibited"
             )
 
         execution_parameters = (
@@ -465,6 +538,19 @@ class BaseController:
                         f"{finding['lifecycle_status']}"
                     )
 
+                # Revalidate persisted findings before approval continuation.
+                # Existing executions may predate the initial-request guard.
+                if (
+                    finding["engine_source"] in ("nmap_nse", "nmap")
+                    and finding["finding_class"] == "service_misconfiguration"
+                    and str(finding["finding_key"]).startswith("NMAP-NSE:ftp-anon:")
+                    and execution["remediation_action"] != "disable_vsftpd_anonymous"
+                ):
+                    raise ValueError(
+                        "Nmap ftp-anon requires server-validated remediation; "
+                        "generic configuration execution is prohibited"
+                    )
+
                 db.update_execution_status(
                     conn,
                     execution_id,
@@ -548,6 +634,19 @@ class BaseController:
         conn = db.connect()
 
         try:
+            if p["remediation_action"] == "disable_vsftpd_anonymous":
+                # Fail before transitioning a queued execution to RUNNING.
+                # Approval continuation also uses persisted finding data.
+                with conn:
+                    ftp_finding = db.get_finding(conn, p["finding_id"])
+                if (
+                    p["engine_source"] != ftp_finding["engine_source"]
+                    or p["finding_class"] != ftp_finding["finding_class"]
+                    or p["finding_key"] != ftp_finding["finding_key"]
+                ):
+                    raise ValueError("FTP execution does not match persisted finding")
+                validated_port = validated_ftp_port(ftp_finding)
+
             if not already_running:
                 with conn:
                     db.update_execution_status(
@@ -570,6 +669,10 @@ class BaseController:
                     p["remediation_action"]
                 ),
             }
+
+
+            if p["remediation_action"] == "disable_vsftpd_anonymous":
+                extra["validated_ftp_port"] = validated_port
 
             # Stage 1 verification row is created before
             # Ansible execution and completed in place.
