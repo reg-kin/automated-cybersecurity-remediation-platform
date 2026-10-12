@@ -197,6 +197,55 @@ expect_value_error(
 )
 print("PASS: generic ftp-anon remediation fails closed")
 
+# Specialised FTP remediation must be backed by an approval-gated rule.
+specialised_ftp_rule = rule(
+    finding_class="service_misconfiguration",
+    capability="service_config",
+    playbook_name="service_config.yml",
+    remediation_action="disable_vsftpd_anonymous",
+    required_parameters=[],
+    automation_tier="TIER_2",
+    approval_required=True,
+)
+
+specialised_ftp_payload = payload(
+    engine_source="nmap_nse",
+    finding_class="service_misconfiguration",
+    finding_key="NMAP-NSE:ftp-anon:21/tcp",
+    capability="service_config",
+    playbook_name="service_config.yml",
+    remediation_action="disable_vsftpd_anonymous",
+    automation_tier="TIER_2",
+    approval_required=True,
+)
+
+ftp_controller.validate(
+    specialised_ftp_payload,
+    specialised_ftp_rule,
+    ftp_finding,
+)
+
+expect_value_error(
+    lambda: ftp_controller.validate(
+        {**specialised_ftp_payload, "approval_required": False},
+        {**specialised_ftp_rule, "approval_required": False},
+        ftp_finding,
+    ),
+    "generic configuration execution is prohibited",
+)
+
+expect_value_error(
+    lambda: ftp_controller.validate(
+        {**specialised_ftp_payload, "approved": True},
+        specialised_ftp_rule,
+        ftp_finding,
+    ),
+    "cannot self-approve",
+)
+
+print("PASS: specialised FTP validation requires approval")
+
+
 # Persisted Nmap finding metadata must be the sole source of the FTP port.
 ftp_authoritative = finding(
     engine_source="nmap_nse",

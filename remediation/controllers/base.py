@@ -292,6 +292,10 @@ class BaseController:
             finding["engine_source"] in ("nmap_nse", "nmap")
             and finding["finding_class"] == "service_misconfiguration"
             and str(finding["finding_key"]).startswith("NMAP-NSE:ftp-anon:")
+            and not (
+                rule["remediation_action"] == "disable_vsftpd_anonymous"
+                and rule["approval_required"]
+            )
         ):
             raise ValueError(
                 "Nmap ftp-anon requires server-validated remediation; "
