@@ -196,7 +196,7 @@ WHERE is_active = TRUE;
 CREATE OR REPLACE FUNCTION complete_remediation_verification(
     p_verification_id BIGINT,
     p_status TEXT,
-    p_verification_result JSONB
+    p_result JSONB
 )
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -226,7 +226,7 @@ BEGIN
     UPDATE remediation_verifications
     SET
         status = p_status,
-        verification_result = COALESCE(p_verification_result, '{}'::jsonb),
+        verification_result = COALESCE(p_result, '{}'::jsonb),
         verified_at = now()
     WHERE verification_id = p_verification_id
       AND status = 'PENDING';
