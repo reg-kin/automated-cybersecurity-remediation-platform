@@ -22,12 +22,15 @@ class ProvisioningCoordinatorTests(unittest.TestCase):
         self.journal = self.private / "journal.json"
         self.application = self.private / "application"
 
+    def verifiers(self):
+        return {stage: (lambda: True) for stage in STAGES}
+
     def test_verified_stages_complete_in_order(self):
         called = []
         operations = {stage: (lambda stage=stage: called.append(stage) or True)
                       for stage in STAGES}
         result = execute_provisioning_stages(
-            self.journal, self.application, operations
+            self.journal, self.application, operations, verifiers=self.verifiers()
         )
         self.assertEqual(called, list(STAGES))
         self.assertEqual(result["state"], "COMPLETE")
@@ -64,7 +67,7 @@ class ProvisioningCoordinatorTests(unittest.TestCase):
     def test_missing_stage_rejected_before_journal_creation(self):
         with self.assertRaisesRegex(RuntimeError, "Exactly one callable"):
             execute_provisioning_stages(
-                self.journal, self.application, {"preflight": lambda: True}
+                self.journal, self.application, {"preflight": lambda: True}, verifiers=self.verifiers()
             )
         self.assertFalse(self.journal.exists())
 
