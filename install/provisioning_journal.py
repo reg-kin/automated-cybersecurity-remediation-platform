@@ -5,6 +5,7 @@ The journal records durable stage boundaries and does not execute provisioning
 or enable services. An interrupted transaction remains blocked for inspection.
 """
 import json
+import tempfile
 import os
 import stat
 from pathlib import Path
@@ -83,4 +84,53 @@ def assert_not_deployable(journal):
     record = inspect_provisioning(journal)
     if record["state"] != TERMINAL:
         raise RuntimeError("Provisioning incomplete; deployment prohibited.")
+    return record
+
+def advance_provisioning(journal, stage, *, evidence_confirmed=False):
+    """Record an externally verified stage; never execute the stage itself.
+
+    Caller must affirm completion after validating real effects. Atomic
+    replacement protects the journal against torn writes. This is not an
+    authorization mechanism or an installer entry point.
+    """
+    if not evidence_confirmed:
+        raise RuntimeError("Stage completion evidence is required.")
+    path = Path(journal)
+    record = inspect_provisioning(path)
+    if record["state"] != "INCOMPLETE":
+        raise RuntimeError("Provisioning transaction already closed.")
+    completed = record["completed_stages"]
+    if len(completed) >= len(STAGES) or stage != STAGES[len(completed)]:
+        raise RuntimeError("Provisioning stages must advance in exact order.")
+    record["completed_stages"] = completed + [stage]
+    if len(record["completed_stages"]) == len(STAGES):
+        record["state"] = TERMINAL
+    parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        parent_stat = os.fstat(parent_fd)
+        if parent_stat.st_uid != os.geteuid() or parent_stat.st_mode & 0o077:
+            raise RuntimeError("Journal directory must remain caller-owned and private.")
+        original = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+        if not stat.S_ISREG(original.st_mode) or original.st_uid != os.geteuid():
+            raise RuntimeError("Journal ownership or type changed.")
+        temporary = None
+        try:
+            fd, temporary = tempfile.mkstemp(prefix=".provision-", dir=path.parent)
+            try:
+                os.fchmod(fd, 0o600)
+                os.write(fd, (json.dumps(record, sort_keys=True) + "\\n").encode())
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            current = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (original.st_dev, original.st_ino):
+                raise RuntimeError("Provisioning journal changed during transition.")
+            os.replace(temporary, path)
+            temporary = None
+            os.fsync(parent_fd)
+        finally:
+            if temporary is not None:
+                os.unlink(temporary)
+    finally:
+        os.close(parent_fd)
     return record
