@@ -29,6 +29,24 @@ def _can_traverse(meta, uid, gid):
     )
 
 
+def _verify_path_traversal(path, uid, gid):
+    # The runtime identity must be able to traverse every parent, not just
+    # the application root. This deliberately does not resolve symlinks.
+    for parent in reversed(path.parents):
+        metadata = parent.stat()
+        if not stat.S_ISDIR(metadata.st_mode) or not _can_traverse(metadata, uid, gid):
+            raise RuntimeError(f"Service account cannot traverse parent: {parent}")
+
+
+def _can_execute(meta, uid, gid):
+    bits = stat.S_IMODE(meta.st_mode)
+    return bool(
+        (meta.st_uid == uid and bits & stat.S_IXUSR)
+        or (meta.st_gid == gid and bits & stat.S_IXGRP)
+        or (bits & stat.S_IXOTH)
+    )
+
+
 def verify_service_identity_access(application, environment_destinations, *, uid, gid):
     """Check staged files can be read/traversed by uid/gid, not only owned.
 
@@ -41,6 +59,7 @@ def verify_service_identity_access(application, environment_destinations, *, uid
         raise RuntimeError("Unsafe staged application path.")
     if set(environment_destinations) != set(ENVIRONMENT_FILE_TEMPLATES):
         raise RuntimeError("Incomplete service environment inventory.")
+    _verify_path_traversal(app, uid, gid)
     root = app.lstat()
     if not stat.S_ISDIR(root.st_mode) or not _can_traverse(root, uid, gid):
         raise RuntimeError("Service account cannot traverse staged application.")
@@ -52,13 +71,17 @@ def verify_service_identity_access(application, environment_destinations, *, uid
     required.extend(app / "deployment" / "systemd" / name for name in
                     inspect_service_provisioning(app)["unit_names"])
     for path in required:
+        _verify_path_traversal(path, uid, gid)
         if not path.exists():
             raise RuntimeError(f"Missing runtime prerequisite: {path}")
         meta = path.stat()
         if not stat.S_ISREG(meta.st_mode) or not _can_read(meta, uid, gid):
             raise RuntimeError(f"Service account cannot read prerequisite: {path}")
+        if path == app / "venv" / "bin" / "python" and not _can_execute(meta, uid, gid):
+            raise RuntimeError("Service account cannot execute Python interpreter.")
     for canonical, location in environment_destinations.items():
         path = Path(location)
+        _verify_path_traversal(path, uid, gid)
         if not path.is_absolute() or path.is_symlink():
             raise RuntimeError(f"Unsafe environment path: {canonical}")
         meta = path.lstat()
