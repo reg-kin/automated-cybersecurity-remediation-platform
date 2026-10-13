@@ -311,19 +311,41 @@ deferred verification jobs.
 The database installation is defined through version-controlled schema,
 seed and migration files rather than a dump of the production database.
 
-11. Installation order
+11. Fresh Database Installation
 
-Apply the database files in the following order:
-database/001_schema.sql
-database/002_seed_finding_classes.sql
-database/003_seed_remediation_rules.sql
-database/migrations/004_deferred_verification.sql
-database/migrations/005_scanner_refresh_completions.sql
-database/migrations/006_scanner_refresh_finding_receipts.sql
-database/010_harden_remediation_routing.sql
+The supported fresh-database installation entry point is:
 
-The schema has been validated by constructing a clean PostgreSQL validation
-database from the repository SQL.
+    install/install_database.py
+
+The installer applies the version-controlled schema, seeds and migrations
+in the order defined by install/database.py. The current manifest contains
+23 SQL files, ending with migration 023.
+
+Prerequisites:
+
+- PostgreSQL is running and accessible.
+- The target database already exists and is empty.
+- The installation account has sufficient database privileges.
+- Python dependencies from requirements.txt are installed.
+- PG_HOST, PG_PORT, PG_USER and PG_PASSWORD are configured.
+
+Example, using a newly created empty database named regis_new_install:
+
+    python install/install_database.py \
+      --database regis_new_install \
+      --confirm-database regis_new_install
+
+The installer refuses protected database names and databases containing
+existing application objects. Both database arguments must match exactly.
+
+All migrations execute within a single transaction. If migration execution
+or installation verification fails, the transaction is rolled back.
+
+The installer commits only after successful execution and verification.
+
+IMPORTANT: This installer is for fresh database installations only.
+Do not use it to upgrade an existing deployment or reapply migrations
+to a production database. Back up existing deployments separately.
 
 12. Remediation Lifecycle
 
