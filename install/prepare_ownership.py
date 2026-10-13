@@ -6,7 +6,7 @@ This component never changes a live installation or invokes systemd.
 import os
 import stat
 from pathlib import Path
-from venv_link_safety import validate_venv_interpreter_link
+from venv_link_safety import validate_venv_interpreter_link, validate_venv_library_link
 
 
 def prepare_staged_application_ownership(application, uid, gid):
@@ -40,6 +40,9 @@ def prepare_staged_application_ownership(application, uid, gid):
                     # Standard venv interpreter links may be absolute or relative.
                     # Do not chown links or follow their targets. The caller must
                     # separately validate the venv interpreter before execution.
+                    if path == application / "venv" / "lib64":
+                        validate_venv_library_link(application, path)
+                        continue
                     if path.parent != application / "venv" / "bin" or name not in (
                         "python", "python3", "python3.12"
                     ):
