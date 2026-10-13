@@ -98,6 +98,62 @@ jobs:
           assert after == before, (before, after)
           print("PASS: Reinstallation rejected and existing table count unchanged")
           PY
+      - name: Verify migration failure rolls back atomically
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg2
+          from unittest.mock import patch
+          from pathlib import Path
+          from install import database as installer
+
+          database_name = "remediation_rollback_ci_test"
+          admin = psycopg2.connect(
+              host=os.environ["PG_HOST"], port=os.environ["PG_PORT"],
+              user=os.environ["PG_USER"], password=os.environ["PG_PASSWORD"],
+              dbname="postgres",
+          )
+          admin.autocommit = True
+          try:
+              with admin.cursor() as cursor:
+                  cursor.execute("CREATE DATABASE remediation_rollback_ci_test")
+          finally:
+              admin.close()
+
+          connection = psycopg2.connect(
+              host=os.environ["PG_HOST"], port=os.environ["PG_PORT"],
+              user=os.environ["PG_USER"], password=os.environ["PG_PASSWORD"],
+              dbname=database_name,
+          )
+          connection.autocommit = False
+          try:
+              original_prepare = installer.prepare_migration_sql
+              calls = [0]
+              def inject_failure(path):
+                  calls[0] += 1
+                  if calls[0] == 3:
+                      return "SELECT * FROM ci_deliberately_missing_relation;"
+                  return original_prepare(path)
+              with patch.object(installer, "prepare_migration_sql", side_effect=inject_failure):
+                  try:
+                      installer.execute_migrations(connection)
+                  except psycopg2.Error:
+                      pass
+                  else:
+                      raise AssertionError("Deliberately invalid migration succeeded")
+              assert calls[0] == 3, calls
+              with connection.cursor() as cursor:
+                  cursor.execute(
+                      "SELECT count(*) FROM information_schema.tables "
+                      "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+                  )
+                  count = cursor.fetchone()[0]
+              assert count == 0, f"Migration rollback left {count} tables"
+              connection.rollback()
+              print("PASS: Failed migration rolled back all prior schema changes")
+          finally:
+              connection.close()
+          PY
       - name: Verify protected database names are rejected
         run: |
           python - <<'PY'
