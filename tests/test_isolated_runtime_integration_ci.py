@@ -70,7 +70,7 @@ class IsolatedRuntimeIntegration(unittest.TestCase):
             def approve(self, execution_id):
                 return {"success": True, "execution_id": execution_id}
         connection = Connection()
-        with patch.object(self.controller.db, "connect", return_value=connection), \\
+        with patch.object(self.controller.db, "connect", return_value=connection), \
              patch.object(self.controller.db, "get_execution",
                           return_value={"capability": "ci_stub"}) as get_execution, \\
              patch.dict(self.controller.CONTROLLERS, {"ci_stub": Stub()}):
