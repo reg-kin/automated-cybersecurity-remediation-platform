@@ -18,6 +18,7 @@ class PythonOwnershipVerificationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.app = Path(self.temp.name) / "application"
         self.app.mkdir(mode=0o700)
+        (self.app / 'requirements.txt').write_text('flask==3.1.3\n')
 
     def test_valid_private_staged_tree(self):
         (self.app / "requirements.txt").write_text("flask==3.1.3\n")
@@ -39,7 +40,19 @@ class PythonOwnershipVerificationTests(unittest.TestCase):
         (venv / "bin").mkdir(parents=True)
         (venv / "pyvenv.cfg").write_text("home = /usr/bin\n")
         (venv / "bin/python").symlink_to(sys.executable)
-        self.assertTrue(verify_python_environment(self.app))
+        with patch('verify_python_ownership.subprocess.run') as run:
+            run.return_value.stdout = '{"Flask": "3.1.3"}'
+            self.assertTrue(verify_python_environment(self.app))
+
+    def test_venv_rejects_uninstalled_pinned_package(self):
+        venv = self.app / 'venv'
+        (venv / 'bin').mkdir(parents=True)
+        (venv / 'pyvenv.cfg').write_text('home = /usr/bin\\n')
+        (venv / 'bin/python').symlink_to(sys.executable)
+        with patch('verify_python_ownership.subprocess.run') as run:
+            run.return_value.stdout = '{"Flask": "0.0.1"}'
+            with self.assertRaisesRegex(RuntimeError, 'missing pinned packages'):
+                verify_python_environment(self.app)
 
     def test_venv_rejects_missing_configuration(self):
         (self.app / "venv" / "bin").mkdir(parents=True)
