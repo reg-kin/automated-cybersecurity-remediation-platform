@@ -319,7 +319,7 @@ The supported fresh-database installation entry point is:
 
 The installer applies the version-controlled schema, seeds and migrations
 in the order defined by install/database.py. The current manifest contains
-23 SQL files, ending with migration 023.
+24 SQL files, ending with migration 024 (scan-policy administration audit history).
 
 Prerequisites:
 

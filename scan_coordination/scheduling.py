@@ -125,6 +125,20 @@ def _resolve_local_wall_time(
     # The platform defines one cron occurrence and chooses the first instant.
     return unique_candidates[0]
 
+def validate_cron_schedule(
+    expression: str,
+    timezone_name: str,
+) -> tuple[str, str]:
+    """Validate a cron expression and IANA timezone."""
+
+    expression = _validate_cron_expression(expression)
+    timezone_name = timezone_name.strip() if isinstance(
+        timezone_name, str
+    ) else timezone_name
+
+    _load_timezone(timezone_name)
+
+    return expression, timezone_name
 
 def next_cron_occurrence(
     expression: str,

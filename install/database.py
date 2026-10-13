@@ -34,6 +34,7 @@ SQL_FILES = [
     "database/migrations/021_scan_policy_scheduling.sql",
     "database/migrations/022_remediation_verification_functions.sql",
     "database/migrations/023_manual_verification.sql",
+    "database/migrations/024_scan_policy_admin_audit.sql",
 ]
 
 

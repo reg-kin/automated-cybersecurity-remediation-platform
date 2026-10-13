@@ -5,7 +5,7 @@ import argparse
 import os
 import sys
 
-from database import execute_migrations, validate_database_target
+from database import SQL_FILES, execute_migrations, validate_database_target
 
 
 def parse_arguments(argv=None):
@@ -89,9 +89,11 @@ def main():
 
         applied = execute_migrations(connection)
 
-        if len(applied) != 23:
+        expected_count = len(SQL_FILES)
+        if len(applied) != expected_count:
             raise RuntimeError(
-                f"Expected 23 migrations, executed {len(applied)}."
+                f"Expected {expected_count} migrations, "
+                f"executed {len(applied)}."
             )
 
         with connection.cursor() as cursor:
