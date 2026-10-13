@@ -113,6 +113,59 @@ class CancellationPostgresIntegration(unittest.TestCase):
                 self.assertEqual(cursor.fetchone()[0], "OPEN")
                 cursor.execute("SELECT count(*) FROM remediation_verifications WHERE execution_id=%s", (execution_id,))
                 self.assertEqual(cursor.fetchone()[0], 0)
+            # Exercise real Stage 1 and Stage 2 evidence on a replacement
+            # execution, without running Ansible or claiming scanner success.
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE unified_security_findings
+                    SET lifecycle_status='IN_REMEDIATION'
+                    WHERE finding_id=%s
+                """, (finding_id,))
+                cursor.execute("""
+                    INSERT INTO remediation_executions (
+                        finding_id, rule_id, capability, target_host,
+                        playbook_name, remediation_action, automation_tier, status
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'QUEUED')
+                    RETURNING execution_id
+                """, (finding_id, rule_id, capability, "192.0.2.200",
+                      playbook, action, tier))
+                verification_execution_id = cursor.fetchone()[0]
+                cursor.execute("""
+                    UPDATE remediation_executions SET status='RUNNING'
+                    WHERE execution_id=%s
+                """, (verification_execution_id,))
+            stage1 = db.begin_verification(
+                connection, finding_id, verification_execution_id,
+                1, "ANSIBLE_LOCAL", "ci-disposable",
+            )
+            db.complete_verification(connection, stage1, "PASSED", {"simulated": True})
+            with self.assertRaisesRegex(RuntimeError, "Could not complete verification"):
+                db.complete_verification(connection, stage1, "FAILED", {})
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE remediation_executions SET status='STAGE1_PASSED'
+                    WHERE execution_id=%s
+                """, (verification_execution_id,))
+            stage2 = db.begin_verification(
+                connection, finding_id, verification_execution_id,
+                2, "SCANNER", "ci-disposable",
+            )
+            db.complete_verification(connection, stage2, "FAILED", {"present": True})
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT stage, status, verification_result
+                    FROM remediation_verifications
+                    WHERE execution_id=%s ORDER BY stage
+                """, (verification_execution_id,))
+                evidence = cursor.fetchall()
+                self.assertEqual([(r[0], r[1]) for r in evidence],
+                                 [(1, "PASSED"), (2, "FAILED")])
+                self.assertEqual(evidence[1][2]["present"], True)
+                cursor.execute("""
+                    SELECT lifecycle_status FROM unified_security_findings
+                    WHERE finding_id=%s
+                """, (finding_id,))
+                self.assertEqual(cursor.fetchone()[0], "IN_REMEDIATION")
             with self.assertRaisesRegex(RuntimeError, "cannot be cancelled"):
                 db.cancel_awaiting_approval(connection, execution_id)
             with self.assertRaisesRegex(ValueError, "does not exist"):
