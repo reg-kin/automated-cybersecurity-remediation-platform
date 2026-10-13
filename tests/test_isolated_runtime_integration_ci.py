@@ -49,6 +49,38 @@ class IsolatedRuntimeIntegration(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.get_json()["status"], "AWAITING_APPROVAL")
 
+    def test_controller_approval_requires_auth_before_database(self):
+        client = self.controller.app.test_client()
+        with patch.object(self.controller.db, "connect", side_effect=AssertionError("database touched")):
+            for endpoint in ("/executions/17/approve", "/executions/17/cancel"):
+                for headers in ({}, {"Authorization": "Bearer incorrect"}):
+                    response = client.post(endpoint, json={}, headers=headers)
+                    self.assertEqual(response.status_code, 401)
+
+    def test_controller_approval_reads_authoritative_execution(self):
+        client = self.controller.app.test_client()
+        class Connection:
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def close(self):
+                pass
+        class Stub:
+            def approve(self, execution_id):
+                return {"success": True, "execution_id": execution_id}
+        connection = Connection()
+        with patch.object(self.controller.db, "connect", return_value=connection), \\
+             patch.object(self.controller.db, "get_execution",
+                          return_value={"capability": "ci_stub"}) as get_execution, \\
+             patch.dict(self.controller.CONTROLLERS, {"ci_stub": Stub()}):
+            response = client.post("/executions/17/approve",
+                                   json={"capability": "os_patching", "execution_target": "malicious"},
+                                   headers={"Authorization": "Bearer " + self.token})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["execution_id"], 17)
+        get_execution.assert_called_once_with(connection, 17)
+
     def test_gateway_rejects_unauthorised_and_fails_closed(self):
         client = self.gateway.app.test_client()
         with patch.object(self.gateway, "dispatch", side_effect=AssertionError("dispatch touched")):
