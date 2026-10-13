@@ -76,6 +76,11 @@ def verify_staged_ownership(application, uid, gid):
         for name in dirs + files:
             entry = Path(current) / name
             metadata = entry.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                if (entry.parent != app / "venv" / "bin"
+                        or name not in ("python", "python3", "python3.12")):
+                    raise RuntimeError(f"Unsafe staged application entry: {entry}")
+                continue
             if (metadata.st_uid != uid or metadata.st_gid != gid
                     or not (stat.S_ISDIR(metadata.st_mode)
                             or stat.S_ISREG(metadata.st_mode))):
