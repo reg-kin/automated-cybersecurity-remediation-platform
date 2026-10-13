@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Isolated, non-production integration tests for authenticated release publication."""
 import hashlib
+import io
 import os
+import tarfile
 import sys
 import tempfile
 import unittest
@@ -14,6 +16,7 @@ from package_release import build_release
 from install_release import (
     install_authenticated_application,
     publish_authenticated_release,
+    parse_release_manifest,
 )
 
 
@@ -81,6 +84,116 @@ class ReleasePublicationTests(unittest.TestCase):
             )
         self.assertFalse(self.destination.exists())
         self.assertEqual(list(self.staging.iterdir()), [])
+
+
+    def altered_archive(self, transform):
+        """Write a deliberately malformed but correctly SHA-256-pinned TAR."""
+        malicious = self.root / "altered.tar"
+        with tarfile.open(self.archive, "r:") as source:
+            members = []
+            for member in source.getmembers():
+                payload = source.extractfile(member).read() if member.isfile() else None
+                members.append((member, payload))
+        members = transform(members)
+        with tarfile.open(malicious, "w") as output:
+            for member, payload in members:
+                output.addfile(member, io.BytesIO(payload) if payload is not None else None)
+        return malicious, hashlib.sha256(malicious.read_bytes()).hexdigest()
+
+    def assert_rejected_without_publication(self, archive, digest):
+        with self.assertRaises((RuntimeError, OSError, ValueError, tarfile.TarError)):
+            publish_authenticated_release(
+                archive, digest, self.destination, self.staging
+            )
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(list(self.staging.iterdir()), [])
+
+    def test_archive_traversal_rejected(self):
+        def transform(members):
+            members[0][0].name = "application/../../escape"
+            return members
+        self.assert_rejected_without_publication(*self.altered_archive(transform))
+
+    def test_archive_absolute_path_rejected(self):
+        def transform(members):
+            members[0][0].name = "/tmp/escape"
+            return members
+        self.assert_rejected_without_publication(*self.altered_archive(transform))
+
+    def test_archive_symlink_rejected(self):
+        def transform(members):
+            member, _ = members[0]
+            member.type = tarfile.SYMTYPE
+            member.linkname = "/etc/passwd"
+            member.size = 0
+            members[0] = (member, None)
+            return members
+        self.assert_rejected_without_publication(*self.altered_archive(transform))
+
+    def test_archive_duplicate_member_rejected(self):
+        def transform(members):
+            return members + [members[0]]
+        self.assert_rejected_without_publication(*self.altered_archive(transform))
+
+    def test_archive_unlisted_file_rejected(self):
+        def transform(members):
+            payload = b"unexpected"
+            member = tarfile.TarInfo("application/install/unlisted-ci-file.txt")
+            member.size = len(payload)
+            return members + [(member, payload)]
+        self.assert_rejected_without_publication(*self.altered_archive(transform))
+
+    def test_archive_unexpected_root_rejected(self):
+        def transform(members):
+            payload = b"unexpected"
+            member = tarfile.TarInfo("unexpected-root.txt")
+            member.size = len(payload)
+            return members + [(member, payload)]
+        self.assert_rejected_without_publication(*self.altered_archive(transform))
+
+    def test_archive_manifest_checksum_mismatch_rejected(self):
+        def transform(members):
+            for index, (member, payload) in enumerate(members):
+                if member.name == "SHA256SUMS":
+                    altered = bytearray(payload)
+                    altered[0] = ord("0") if altered[0] != ord("0") else ord("1")
+                    members[index] = (member, bytes(altered))
+                    break
+            else:
+                self.fail("Release manifest missing")
+            return members
+        self.assert_rejected_without_publication(*self.altered_archive(transform))
+
+    def test_preflight_failure_cleans_staging(self):
+        def reject(_source, _destination):
+            raise RuntimeError("Deliberate preflight rejection")
+        with self.assertRaisesRegex(RuntimeError, "Deliberate preflight"):
+            publish_authenticated_release(
+                self.archive, self.digest, self.destination, self.staging,
+                preflight=reject,
+            )
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(list(self.staging.iterdir()), [])
+
+    def test_untrusted_staging_permissions_rejected(self):
+        self.staging.chmod(0o755)
+        with self.assertRaises(RuntimeError):
+            publish_authenticated_release(
+                self.archive, self.digest, self.destination, self.staging
+            )
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(list(self.staging.iterdir()), [])
+
+    def test_manifest_rejects_traversal_and_duplicate_paths(self):
+        digest = "0" * 64
+        for manifest in (
+            f"{digest}  ../escape\\n",
+            f"{digest}  safe\\n{digest}  safe\\n",
+            f"{digest}  /absolute\\n",
+        ):
+            with self.subTest(manifest=manifest):
+                with self.assertRaises(RuntimeError):
+                    parse_release_manifest(manifest.encode("ascii"))
 
     def test_reproducible_package(self):
         second = self.root / "release-again.tar"
