@@ -195,6 +195,43 @@ class ReleasePublicationTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     parse_release_manifest(manifest.encode("ascii"))
 
+
+    def test_preflight_checks_authenticated_extracted_source(self):
+        observed = []
+        def inspect(source, destination):
+            observed.append((source, destination))
+            self.assertTrue((source / "requirements.txt").is_file())
+            self.assertTrue(
+                (source / "deployment/systemd/remediation-controller.service").is_file()
+            )
+            self.assertNotEqual(source.resolve(), ROOT.resolve())
+            raise RuntimeError("Preflight inspection completed")
+        with self.assertRaisesRegex(RuntimeError, "Preflight inspection completed"):
+            publish_authenticated_release(
+                self.archive, self.digest, self.destination, self.staging,
+                preflight=inspect,
+            )
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(observed[0][1], self.destination)
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(list(self.staging.iterdir()), [])
+
+    def test_preflight_refuses_existing_destination(self):
+        self.destination.mkdir(mode=0o700)
+        marker = self.destination / "keep.txt"
+        marker.write_text("preserve")
+        def inspect(source, destination):
+            self.assertTrue((source / "requirements.txt").is_file())
+            if destination.exists():
+                raise RuntimeError("Destination already exists")
+        with self.assertRaisesRegex(RuntimeError, "Destination already exists"):
+            publish_authenticated_release(
+                self.archive, self.digest, self.destination, self.staging,
+                preflight=inspect,
+            )
+        self.assertEqual(marker.read_text(), "preserve")
+        self.assertEqual(list(self.staging.iterdir()), [])
+
     def test_reproducible_package(self):
         second = self.root / "release-again.tar"
         count, digest = build_release(ROOT, self.revision, second)
