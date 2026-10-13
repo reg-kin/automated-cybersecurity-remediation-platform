@@ -28,8 +28,10 @@ class ServiceIdentityAccessTests(unittest.TestCase):
         (self.app / "deployment" / "systemd").mkdir(parents=True)
         (self.app / "deployment" / "systemd" / "test.service").write_text("[Service]\n")
         self.env = {}
+        env_dir = root / "environment"
+        env_dir.mkdir(mode=0o700)
         for canonical in ENVIRONMENT_FILE_TEMPLATES:
-            path = root / Path(canonical).name
+            path = env_dir / Path(canonical).name
             path.write_text("TOKEN=EXAMPLE\n")
             path.chmod(0o640)
             self.env[canonical] = path
