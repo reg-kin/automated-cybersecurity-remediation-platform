@@ -48,7 +48,8 @@ class FullProvisioningTests(unittest.TestCase):
         # Only Python's dependency installation is stubbed; real preflight,
         # ownership preparation, environment, units, and journal are exercised.
         with patch("provisioning_middle_stages.provision_python_environment"), \
-             patch("provisioning_middle_stages.verify_python_environment", return_value=True):
+             patch("provisioning_middle_stages.verify_python_environment", return_value=True), \
+             patch("verify_complete_provisioning.verify_python_environment", return_value=True):
             result = self.run_full()
         self.assertEqual(result["state"], "COMPLETE")
         self.assertEqual(result["completed_stages"],
@@ -66,6 +67,18 @@ class FullProvisioningTests(unittest.TestCase):
                          ["preflight", "python", "ownership", "environment", "units"])
         self.assertEqual(inspect_staged_application(self.journal)[
             "dispatcher_timer_activation"], "FORBIDDEN")
+
+    def test_completed_journal_does_not_hide_tampered_unit(self):
+        from verify_complete_provisioning import verify_complete_provisioning
+        result = self.run_full()
+        self.assertEqual(result["state"], "COMPLETE")
+        unit = next(self.units.glob("*.service"))
+        unit.chmod(0o666)
+        with self.assertRaisesRegex(RuntimeError, "verification failed"):
+            verify_complete_provisioning(
+                self.journal, self.app, self.units, self.mapping,
+                uid=os.geteuid(), gid=os.getegid()
+            )
 
     def test_python_failure_blocks_all_later_stages(self):
         with patch("provisioning_middle_stages.provision_python_environment",
