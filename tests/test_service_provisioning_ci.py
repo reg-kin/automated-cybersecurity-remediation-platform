@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "install"))
@@ -16,6 +17,17 @@ class ServiceProvisioningTests(unittest.TestCase):
         self.assertIn("remediation-dispatcher.timer", result["unit_names"])
         self.assertEqual(result["dispatcher_timer_activation"], "FORBIDDEN")
         self.assertEqual(result["actions_performed"], 0)
+
+    def test_embedded_service_activation_rejected(self):
+        original_read = Path.read_text
+        def injected_read(path, *args, **kwargs):
+            value = original_read(path, *args, **kwargs)
+            if path.name == "remediation-controller.service":
+                return value + "\\nExecStartPost=/usr/bin/systemctl enable remediation-dispatcher.timer\\n"
+            return value
+        with patch.object(Path, "read_text", injected_read):
+            with self.assertRaisesRegex(RuntimeError, "activation command forbidden"):
+                inspect_service_provisioning(ROOT)
 
     def test_missing_timer_rejected(self):
         with tempfile.TemporaryDirectory() as root:
