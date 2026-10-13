@@ -75,6 +75,32 @@ class CancellationPostgresIntegration(unittest.TestCase):
                 """, (finding_id, rule_id, capability, "192.0.2.200",
                       playbook, action, tier))
                 execution_id = cursor.fetchone()[0]
+            # A second active execution for this finding must be rejected by
+            # PostgreSQL, without invalidating the surrounding test transaction.
+            with connection.cursor() as cursor:
+                cursor.execute("SAVEPOINT duplicate_active_execution")
+                try:
+                    with self.assertRaises(psycopg2.errors.UniqueViolation) as violation:
+                        cursor.execute("""
+                            INSERT INTO remediation_executions (
+                                finding_id, rule_id, capability, target_host,
+                                playbook_name, remediation_action, automation_tier, status
+                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,'QUEUED')
+                        """, (finding_id, rule_id, capability, "192.0.2.200",
+                              playbook, action, tier))
+                    self.assertEqual(
+                        violation.exception.diag.constraint_name,
+                        db.ACTIVE_EXECUTION_CONSTRAINT,
+                    )
+                finally:
+                    cursor.execute("ROLLBACK TO SAVEPOINT duplicate_active_execution")
+                    cursor.execute("RELEASE SAVEPOINT duplicate_active_execution")
+                cursor.execute("""
+                    SELECT count(*) FROM remediation_executions
+                    WHERE finding_id=%s AND status IN
+                    ('QUEUED','AWAITING_APPROVAL','RUNNING','STAGE1_PASSED','VERIFYING')
+                """, (finding_id,))
+                self.assertEqual(cursor.fetchone()[0], 1)
             cancelled = db.cancel_awaiting_approval(connection, execution_id)
             self.assertEqual(cancelled["status"], "CANCELLED")
             self.assertEqual(cancelled["finding_status"], "OPEN")
