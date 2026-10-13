@@ -29,6 +29,8 @@ jobs:
         run: python -m compileall -q install tests/test_release_publication_ci.py
       - name: Check whitespace
         run: git diff --check HEAD^ HEAD
+      - name: Run offline environment provisioning tests
+        run: python -m unittest discover -s tests -p 'test_provision_environment_ci.py' -v
       - name: Run offline systemd unit provisioning tests
         run: python -m unittest discover -s tests -p 'test_provision_service_units_ci.py' -v
       - name: Run read-only service provisioning checks
