@@ -42,6 +42,13 @@ class OwnershipPreparationTests(unittest.TestCase):
         self.assertGreater(self.prepare(), 3)
         self.assertTrue((binary / "python").is_symlink())
 
+    def test_interpreter_link_to_untrusted_binary_rejected(self):
+        binary = self.app / "venv" / "bin"
+        binary.mkdir(parents=True)
+        (binary / "python").symlink_to("/bin/sh")
+        with self.assertRaisesRegex(RuntimeError, "trusted system"):
+            self.prepare()
+
     def test_unexpected_venv_symlink_rejected(self):
         binary = self.app / "venv" / "bin"
         binary.mkdir(parents=True)
