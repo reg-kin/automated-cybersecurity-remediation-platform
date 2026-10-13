@@ -58,6 +58,15 @@ class FullProvisioningTests(unittest.TestCase):
         self.assertEqual(inspect_staged_application(self.journal)[
             "dispatcher_timer_activation"], "FORBIDDEN")
 
+    def test_full_stages_with_real_python_dependencies(self):
+        # Real venv and real pinned package installation; all five stages run.
+        result = self.run_full()
+        self.assertEqual(result["state"], "COMPLETE")
+        self.assertEqual(result["completed_stages"],
+                         ["preflight", "python", "ownership", "environment", "units"])
+        self.assertEqual(inspect_staged_application(self.journal)[
+            "dispatcher_timer_activation"], "FORBIDDEN")
+
     def test_python_failure_blocks_all_later_stages(self):
         with patch("provisioning_middle_stages.provision_python_environment",
                    side_effect=RuntimeError("INJECTED dependency failure")):
