@@ -11,22 +11,24 @@ from install_application import ENVIRONMENT_FILE_TEMPLATES
 from service_provisioning import inspect_service_provisioning
 
 
+def _permission(meta, uid, gid, owner_bit, group_bit, other_bit):
+    # POSIX DAC selects exactly one class: owner, else group, else other.
+    # Combining classes with OR would incorrectly grant owner access through
+    # group/other bits when the owner permission itself is absent.
+    mode = stat.S_IMODE(meta.st_mode)
+    if meta.st_uid == uid:
+        return bool(mode & owner_bit)
+    if meta.st_gid == gid:
+        return bool(mode & group_bit)
+    return bool(mode & other_bit)
+
+
 def _can_read(meta, uid, gid):
-    bits = stat.S_IMODE(meta.st_mode)
-    return bool(
-        (meta.st_uid == uid and bits & stat.S_IRUSR)
-        or (meta.st_gid == gid and bits & stat.S_IRGRP)
-        or (bits & stat.S_IROTH)
-    )
+    return _permission(meta, uid, gid, stat.S_IRUSR, stat.S_IRGRP, stat.S_IROTH)
 
 
 def _can_traverse(meta, uid, gid):
-    bits = stat.S_IMODE(meta.st_mode)
-    return bool(
-        (meta.st_uid == uid and bits & stat.S_IXUSR)
-        or (meta.st_gid == gid and bits & stat.S_IXGRP)
-        or (bits & stat.S_IXOTH)
-    )
+    return _permission(meta, uid, gid, stat.S_IXUSR, stat.S_IXGRP, stat.S_IXOTH)
 
 
 def _verify_path_traversal(path, uid, gid):
@@ -39,12 +41,7 @@ def _verify_path_traversal(path, uid, gid):
 
 
 def _can_execute(meta, uid, gid):
-    bits = stat.S_IMODE(meta.st_mode)
-    return bool(
-        (meta.st_uid == uid and bits & stat.S_IXUSR)
-        or (meta.st_gid == gid and bits & stat.S_IXGRP)
-        or (bits & stat.S_IXOTH)
-    )
+    return _permission(meta, uid, gid, stat.S_IXUSR, stat.S_IXGRP, stat.S_IXOTH)
 
 
 def verify_service_identity_access(application, environment_destinations, *, uid, gid):
