@@ -118,7 +118,7 @@ def advance_provisioning(journal, stage, *, evidence_confirmed=False):
             fd, temporary = tempfile.mkstemp(prefix=".provision-", dir=path.parent)
             try:
                 os.fchmod(fd, 0o600)
-                os.write(fd, (json.dumps(record, sort_keys=True) + "\\n").encode())
+                os.write(fd, (json.dumps(record, sort_keys=True) + "\n").encode())
                 os.fsync(fd)
             finally:
                 os.close(fd)
