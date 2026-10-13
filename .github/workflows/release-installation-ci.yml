@@ -29,6 +29,10 @@ jobs:
         run: python -m compileall -q install tests/test_release_publication_ci.py
       - name: Check whitespace
         run: git diff --check HEAD^ HEAD
+      - name: Install isolated runtime integration dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run isolated API and verification gateway runtime tests
+        run: python -m unittest discover -s tests -p 'test_isolated_runtime_integration_ci.py' -v
       - name: Run post-configuration offline readiness safety tests
         run: python -m unittest discover -s tests -p 'test_offline_readiness_ci.py' -v
       - name: Run service identity access safety tests
