@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from venv_link_safety import validate_venv_interpreter_link
 
 
 def verify_python_environment(application):
@@ -80,6 +81,7 @@ def verify_staged_ownership(application, uid, gid):
                 if (entry.parent != app / "venv" / "bin"
                         or name not in ("python", "python3", "python3.12")):
                     raise RuntimeError(f"Unsafe staged application entry: {entry}")
+                validate_venv_interpreter_link(app, entry)
                 continue
             if (metadata.st_uid != uid or metadata.st_gid != gid
                     or not (stat.S_ISDIR(metadata.st_mode)
