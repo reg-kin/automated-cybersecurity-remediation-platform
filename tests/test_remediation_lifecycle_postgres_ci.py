@@ -44,6 +44,51 @@ class CancellationPostgresIntegration(unittest.TestCase):
                 # a synthetic finding that could bypass tenant/asset constraints.
                 cursor.execute("SELECT COALESCE(MAX(execution_id), 0) + 100000 FROM remediation_executions")
                 absent_id = cursor.fetchone()[0]
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT rule_id, finding_class, capability, playbook_name,
+                           remediation_action, automation_tier
+                    FROM remediation_rules WHERE enabled IS TRUE
+                    ORDER BY rule_id LIMIT 1
+                """)
+                rule = cursor.fetchone()
+                self.assertIsNotNone(rule, "Fresh installation has no enabled remediation rules")
+                rule_id, finding_class, capability, playbook, action, tier = rule
+                cursor.execute("""
+                    INSERT INTO unified_security_findings (
+                        tenant_code, tenant_service_tier, target_host,
+                        engine_source, finding_category, finding_class,
+                        finding_key, finding_title, lifecycle_status
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    RETURNING finding_id
+                """, ("LIFECYCLE-CI-ONLY", "STANDARD", "192.0.2.200",
+                      "ci_disposable", "vulnerability", finding_class,
+                      "ci-cancellation-fixture", "Disposable cancellation fixture",
+                      "IN_REMEDIATION"))
+                finding_id = cursor.fetchone()[0]
+                cursor.execute("""
+                    INSERT INTO remediation_executions (
+                        finding_id, rule_id, capability, target_host,
+                        playbook_name, remediation_action, automation_tier, status
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'AWAITING_APPROVAL')
+                    RETURNING execution_id
+                """, (finding_id, rule_id, capability, "192.0.2.200",
+                      playbook, action, tier))
+                execution_id = cursor.fetchone()[0]
+            cancelled = db.cancel_awaiting_approval(connection, execution_id)
+            self.assertEqual(cancelled["status"], "CANCELLED")
+            self.assertEqual(cancelled["finding_status"], "OPEN")
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT status, attempt_counted FROM remediation_executions WHERE execution_id=%s", (execution_id,))
+                status, counted = cursor.fetchone()
+                self.assertEqual(status, "CANCELLED")
+                self.assertFalse(counted)
+                cursor.execute("SELECT lifecycle_status FROM unified_security_findings WHERE finding_id=%s", (finding_id,))
+                self.assertEqual(cursor.fetchone()[0], "OPEN")
+                cursor.execute("SELECT count(*) FROM remediation_verifications WHERE execution_id=%s", (execution_id,))
+                self.assertEqual(cursor.fetchone()[0], 0)
+            with self.assertRaisesRegex(RuntimeError, "cannot be cancelled"):
+                db.cancel_awaiting_approval(connection, execution_id)
             with self.assertRaisesRegex(ValueError, "does not exist"):
                 db.cancel_awaiting_approval(connection, absent_id)
             connection.rollback()
