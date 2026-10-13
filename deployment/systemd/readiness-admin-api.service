@@ -1,6 +1,6 @@
 [Unit]
 Description=Automated Remediation Readiness Administrative API
-After=network-online.target postgresql.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]
