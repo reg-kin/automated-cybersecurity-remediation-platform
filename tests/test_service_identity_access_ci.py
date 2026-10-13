@@ -23,6 +23,7 @@ class ServiceIdentityAccessTests(unittest.TestCase):
         (self.app / "venv" / "bin").mkdir(parents=True)
         (self.app / "venv" / "pyvenv.cfg").write_text("home=/usr/bin\n")
         (self.app / "venv" / "bin" / "python").write_text("test")
+        (self.app / "venv" / "bin" / "python").chmod(0o700)
         (self.app / "requirements.txt").write_text("flask==3.1.3\n")
         (self.app / "deployment" / "systemd").mkdir(parents=True)
         (self.app / "deployment" / "systemd" / "test.service").write_text("[Service]\n")
@@ -59,6 +60,22 @@ class ServiceIdentityAccessTests(unittest.TestCase):
     def test_unreadable_requirement_rejected(self):
         (self.app / "requirements.txt").chmod(0)
         with self.assertRaisesRegex(RuntimeError, "cannot read prerequisite"):
+            self.verify()
+
+    def test_interpreter_not_executable_rejected(self):
+        (self.app / "venv" / "bin" / "python").chmod(0o600)
+        with self.assertRaisesRegex(RuntimeError, "cannot execute"):
+            self.verify()
+
+    def test_parent_directory_not_traversable_rejected(self):
+        (self.app / "venv" / "bin").chmod(0o600)
+        with self.assertRaisesRegex(RuntimeError, "cannot traverse parent"):
+            self.verify()
+
+    def test_environment_parent_not_traversable_rejected(self):
+        parent = next(iter(self.env.values())).parent
+        parent.chmod(0o600)
+        with self.assertRaisesRegex(RuntimeError, "cannot traverse parent"):
             self.verify()
 
     def test_incorrect_environment_permissions_rejected(self):
