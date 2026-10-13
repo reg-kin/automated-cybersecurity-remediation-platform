@@ -64,6 +64,23 @@ class ServiceIdentityAccessTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "cannot read prerequisite"):
             self.verify()
 
+    def test_owner_read_denial_not_overridden_by_other_bits(self):
+        # 004 grants others read but denies the actual file owner.
+        (self.app / "requirements.txt").chmod(0o004)
+        with self.assertRaisesRegex(RuntimeError, "cannot read prerequisite"):
+            self.verify()
+
+    def test_owner_traverse_denial_not_overridden_by_other_bits(self):
+        # 001 grants others traverse but denies the actual directory owner.
+        (self.app / "venv" / "bin").chmod(0o001)
+        with self.assertRaisesRegex(RuntimeError, "cannot traverse parent"):
+            self.verify()
+
+    def test_owner_execute_denial_not_overridden_by_other_bits(self):
+        (self.app / "venv" / "bin" / "python").chmod(0o604)
+        with self.assertRaisesRegex(RuntimeError, "cannot execute"):
+            self.verify()
+
     def test_interpreter_not_executable_rejected(self):
         (self.app / "venv" / "bin" / "python").chmod(0o600)
         with self.assertRaisesRegex(RuntimeError, "cannot execute"):
