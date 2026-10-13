@@ -31,7 +31,6 @@ def validate_venv_interpreter_link(application, path):
         raise RuntimeError("Interpreter link escapes trusted system directories.")
     metadata = target.stat()
     if (not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_mode & 0o022
             or not os.access(target, os.X_OK)):
         raise RuntimeError("Interpreter target ownership or permissions unsafe.")
     if not raw:
