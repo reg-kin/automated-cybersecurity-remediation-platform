@@ -12,7 +12,7 @@ def prepare_staged_application_ownership(application, uid, gid):
     """Assign ownership to a private tree using no-follow descriptor operations.
 
     Only a caller-owned, mode-0700 directory is eligible. All descendants are
-    inspected before mutation; symbolic links and special files are rejected.
+    inspected before mutation; symlinks are permitted only for the Python\n    virtual environment interpreter pointing to a trusted system interpreter.\n    Symlinks are never followed for ownership changes.
     The staged root remains private after preparation. This is intentionally
     not a recursive chown helper for arbitrary paths.
     """
@@ -35,6 +35,15 @@ def prepare_staged_application_ownership(application, uid, gid):
                     raise RuntimeError("Staged application crosses filesystem boundary.")
                 if metadata.st_uid != os.geteuid():
                     raise RuntimeError("Staged application contains foreign-owned files.")
+                if stat.S_ISLNK(metadata.st_mode):
+                    # Standard venv interpreter links may be absolute or relative.
+                    # Do not chown links or follow their targets. The caller must
+                    # separately validate the venv interpreter before execution.
+                    if path.parent != application / "venv" / "bin" or name not in (
+                        "python", "python3", "python3.12"
+                    ):
+                        raise RuntimeError("Staged application contains unexpected symlink.")
+                    continue
                 if not (stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)):
                     raise RuntimeError("Staged application contains unsafe filesystem entry.")
                 entries.append((path, metadata.st_dev, metadata.st_ino, stat.S_ISDIR(metadata.st_mode)))
