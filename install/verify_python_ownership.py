@@ -5,6 +5,9 @@ No dependency installation, chown, or systemd activity.
 """
 import os
 import stat
+import json
+import re
+import subprocess
 from pathlib import Path
 
 
@@ -24,6 +27,39 @@ def verify_python_environment(application):
     # require an existing executable instead of prohibiting all symlinks.
     if not python.exists() or not python.is_file() or not os.access(python, os.X_OK):
         raise RuntimeError("Missing executable virtual environment Python.")
+    requirements = app / "requirements.txt"
+    if requirements.is_symlink() or not requirements.is_file():
+        raise RuntimeError("Missing safe pinned requirements.")
+    expected = {}
+    for line in requirements.read_text().splitlines():
+        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9_.-]*)==([A-Za-z0-9][A-Za-z0-9_.+!-]*)", line.strip())
+        if match is None:
+            raise RuntimeError("Invalid pinned requirement.")
+        key = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+        if key in expected:
+            raise RuntimeError("Duplicate pinned requirement.")
+        expected[key] = match.group(2)
+    if not expected:
+        raise RuntimeError("Empty pinned requirements.")
+    script = (
+        "import importlib.metadata as m, json;"
+        "print(json.dumps({d.metadata['Name']: d.version for d in m.distributions()}))"
+    )
+    result = subprocess.run(
+        [str(python), "-c", script], capture_output=True, text=True,
+        check=True, timeout=30,
+    )
+    installed = {
+        re.sub(r"[-_.]+", "-", name).lower(): version
+        for name, version in json.loads(result.stdout).items()
+    }
+    missing = {
+        name: version for name, version in expected.items()
+        if installed.get(name) != version
+    }
+    if missing:
+        raise RuntimeError("Virtual environment missing pinned packages: "
+                           + ", ".join(sorted(missing)))
     return True
 
 
