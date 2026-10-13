@@ -36,3 +36,18 @@ def validate_venv_interpreter_link(application, path):
     if not raw:
         raise RuntimeError("Empty interpreter symlink.")
     return True
+
+def validate_venv_library_link(application, path):
+    """Allow CPython's standard venv/lib64 -> lib compatibility link only."""
+    app = Path(application)
+    link = Path(path)
+    if link != app / "venv" / "lib64" or not link.is_symlink():
+        raise RuntimeError("Unexpected staged application symlink.")
+    if os.readlink(link) != "lib":
+        raise RuntimeError("Unsafe virtual environment library symlink.")
+    destination = app / "venv" / "lib"
+    if destination.is_symlink() or not destination.is_dir():
+        raise RuntimeError("Unsafe virtual environment library directory.")
+    if link.resolve(strict=True) != destination.resolve(strict=True):
+        raise RuntimeError("Virtual environment library symlink escapes staging.")
+    return True
