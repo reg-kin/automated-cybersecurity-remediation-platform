@@ -13,6 +13,7 @@ from provisioning_journal import (
 from verified_provisioning import verified_preflight
 from provisioning_middle_stages import execute_middle_stages
 from provisioning_final_stages import execute_final_provisioning_stages
+from verify_complete_provisioning import verify_complete_provisioning
 
 
 def provision_staged_application(
@@ -38,7 +39,9 @@ def provision_staged_application(
         journal, app, unit_destination, environment_destinations,
         uid=uid, gid=gid,
     )
-    return assert_not_deployable(journal)
+    return verify_complete_provisioning(
+        journal, app, unit_destination, environment_destinations, uid=uid, gid=gid
+    )
 
 
 def inspect_staged_application(journal):
