@@ -74,6 +74,7 @@ class ServiceIdentityAccessTests(unittest.TestCase):
 
     def test_environment_parent_not_traversable_rejected(self):
         parent = next(iter(self.env.values())).parent
+        self.addCleanup(parent.chmod, 0o700)
         parent.chmod(0o600)
         with self.assertRaisesRegex(RuntimeError, "cannot traverse parent"):
             self.verify()
