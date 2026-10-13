@@ -22,10 +22,13 @@ def inspect_service_provisioning(source):
     unit_names = {p.name for p in units}
     service_accounts = set()
     referenced_envs = set()
+    activation_directives = ("systemctl enable", "systemctl start", "systemctl preset", "systemctl reenable", "systemctl --now")
     for unit in units:
         if unit.is_symlink() or not unit.is_file():
             raise RuntimeError(f"Unsafe systemd unit: {unit}")
         lines = unit.read_text(encoding="utf-8").splitlines()
+        if any(directive in line.lower() for line in lines for directive in activation_directives):
+            raise RuntimeError(f"Service activation command forbidden: {unit.name}")
         for line in lines:
             if line.startswith(("User=", "Group=")):
                 service_accounts.add(line.partition("=")[2].strip())
@@ -56,8 +59,12 @@ def inspect_service_provisioning(source):
     if unknown_envs:
         raise RuntimeError(f"Unprovisioned environment references: {unknown_envs}")
     timer = unit_dir / "remediation-dispatcher.timer"
-    if not timer.is_file():
-        raise RuntimeError("Dispatcher timer missing.")
+    if timer.is_symlink() or not timer.is_file():
+        raise RuntimeError("Dispatcher timer missing or unsafe.")
+    if "remediation-dispatcher.service" not in unit_names:
+        raise RuntimeError("Dispatcher service missing.")
+    if "automated-remediation" not in service_accounts:
+        raise RuntimeError("Expected service account missing.")
     return {
         "unit_names": sorted(unit_names),
         "service_accounts": sorted(service_accounts),
