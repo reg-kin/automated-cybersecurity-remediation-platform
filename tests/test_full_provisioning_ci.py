@@ -80,6 +80,28 @@ class FullProvisioningTests(unittest.TestCase):
                 uid=os.geteuid(), gid=os.getegid()
             )
 
+    def test_completed_journal_does_not_hide_unit_content_tampering(self):
+        from verify_complete_provisioning import verify_complete_provisioning
+        self.assertEqual(self.run_full()["state"], "COMPLETE")
+        unit = next(self.units.glob("*.service"))
+        unit.write_text("MALICIOUS UNIT CONTENT")
+        with self.assertRaisesRegex(RuntimeError, "content mismatch"):
+            verify_complete_provisioning(
+                self.journal, self.app, self.units, self.mapping,
+                uid=os.geteuid(), gid=os.getegid()
+            )
+
+    def test_completed_journal_does_not_hide_environment_content_tampering(self):
+        from verify_complete_provisioning import verify_complete_provisioning
+        self.assertEqual(self.run_full()["state"], "COMPLETE")
+        target = next(self.env.iterdir())
+        target.write_text("MALICIOUS ENV CONTENT")
+        with self.assertRaisesRegex(RuntimeError, "content mismatch"):
+            verify_complete_provisioning(
+                self.journal, self.app, self.units, self.mapping,
+                uid=os.geteuid(), gid=os.getegid()
+            )
+
     def test_python_failure_blocks_all_later_stages(self):
         with patch("provisioning_middle_stages.provision_python_environment",
                    side_effect=RuntimeError("INJECTED dependency failure")):
