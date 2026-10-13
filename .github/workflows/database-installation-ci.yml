@@ -36,6 +36,7 @@ jobs:
       PG_PASSWORD: ci_disposable_password
       PG_DBNAME: remediation_install_ci_test
       SCAN_POLICY_TEST_DATABASE: remediation_install_ci_test
+      REMEDIATION_LIFECYCLE_TEST_DATABASE: remediation_install_ci_test
       PYTHONPATH: .
     steps:
       - name: Check out source
@@ -166,5 +167,7 @@ jobs:
               raise AssertionError(f"Protected database accepted: {name}")
           print("PASS: Protected database names rejected")
           PY
+      - name: Run disposable remediation lifecycle database checks
+        run: python -m unittest discover -s tests -p 'test_remediation_lifecycle_postgres_ci.py' -v
       - name: Run scan policy PostgreSQL integration test
         run: python -m unittest discover -s tests -p 'test_scan_policy_administration_postgres.py' -v
