@@ -32,7 +32,21 @@ class OwnershipPreparationTests(unittest.TestCase):
 
     def test_symlink_descendant_rejected_before_mutation(self):
         (self.app / "external").symlink_to(self.app.parent)
-        with self.assertRaisesRegex(RuntimeError, "unsafe filesystem entry"):
+        with self.assertRaisesRegex(RuntimeError, "unexpected symlink"):
+            self.prepare()
+
+    def test_venv_interpreter_symlink_not_followed(self):
+        binary = self.app / "venv" / "bin"
+        binary.mkdir(parents=True)
+        (binary / "python").symlink_to(sys.executable)
+        self.assertGreater(self.prepare(), 3)
+        self.assertTrue((binary / "python").is_symlink())
+
+    def test_unexpected_venv_symlink_rejected(self):
+        binary = self.app / "venv" / "bin"
+        binary.mkdir(parents=True)
+        (binary / "pip").symlink_to(sys.executable)
+        with self.assertRaisesRegex(RuntimeError, "unexpected symlink"):
             self.prepare()
 
     def test_nonprivate_root_rejected(self):
