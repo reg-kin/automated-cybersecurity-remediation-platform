@@ -29,6 +29,8 @@ jobs:
         run: python -m compileall -q install tests/test_release_publication_ci.py
       - name: Check whitespace
         run: git diff --check HEAD^ HEAD
+      - name: Run service identity access safety tests
+        run: python -m unittest discover -s tests -p 'test_service_identity_access_ci.py' -v
       - name: Run deployment configuration readiness safety tests
         run: python -m unittest discover -s tests -p 'test_deployment_configuration_readiness_ci.py' -v
       - name: Run real pinned Python installation and ownership integration
