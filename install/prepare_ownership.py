@@ -6,6 +6,7 @@ This component never changes a live installation or invokes systemd.
 import os
 import stat
 from pathlib import Path
+from venv_link_safety import validate_venv_interpreter_link
 
 
 def prepare_staged_application_ownership(application, uid, gid):
@@ -43,6 +44,7 @@ def prepare_staged_application_ownership(application, uid, gid):
                         "python", "python3", "python3.12"
                     ):
                         raise RuntimeError("Staged application contains unexpected symlink.")
+                    validate_venv_interpreter_link(application, path)
                     continue
                 if not (stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)):
                     raise RuntimeError("Staged application contains unsafe filesystem entry.")
