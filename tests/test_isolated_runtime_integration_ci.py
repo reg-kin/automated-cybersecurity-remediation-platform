@@ -83,6 +83,55 @@ class IsolatedRuntimeIntegration(unittest.TestCase):
         self.assertEqual(response.get_json()["execution_id"], 17)
         get_execution.assert_called_once_with(connection, 17)
 
+    def test_controller_cancellation_uses_persisted_transaction(self):
+        client = self.controller.app.test_client()
+        class Connection:
+            entered = False
+            closed = False
+            def __enter__(self):
+                self.entered = True
+                return self
+            def __exit__(self, *_):
+                return False
+            def close(self):
+                self.closed = True
+        connection = Connection()
+        with (
+            patch.object(self.controller.db, "connect", return_value=connection),
+            patch.object(self.controller.db, "cancel_awaiting_approval",
+                         return_value={"success": True, "status": "CANCELLED"}) as cancel,
+        ):
+            response = client.post("/executions/17/cancel",
+                                   json={"capability": "os_patching", "execution_target": "untrusted"},
+                                   headers={"Authorization": "Bearer " + self.token})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "CANCELLED")
+        cancel.assert_called_once_with(connection, 17)
+        self.assertTrue(connection.entered)
+        self.assertTrue(connection.closed)
+
+    def test_controller_cancellation_conflict_fails_closed(self):
+        client = self.controller.app.test_client()
+        class Connection:
+            closed = False
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def close(self):
+                self.closed = True
+        connection = Connection()
+        with (
+            patch.object(self.controller.db, "connect", return_value=connection),
+            patch.object(self.controller.db, "cancel_awaiting_approval",
+                         side_effect=RuntimeError("already executed")),
+        ):
+            response = client.post("/executions/17/cancel",
+                                   headers={"Authorization": "Bearer " + self.token})
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(response.get_json()["success"])
+        self.assertTrue(connection.closed)
+
     def test_gateway_rejects_unauthorised_and_fails_closed(self):
         client = self.gateway.app.test_client()
         with patch.object(self.gateway, "dispatch", side_effect=AssertionError("dispatch touched")):
