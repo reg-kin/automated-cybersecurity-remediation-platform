@@ -31,6 +31,8 @@ jobs:
         run: git diff --check HEAD^ HEAD
       - name: Run verified provisioning adapter tests
         run: python -m unittest discover -s tests -p 'test_verified_provisioning_ci.py' -v
+      - name: Run coordinator evidence verification tests
+        run: python -m unittest discover -s tests -p 'test_coordinator_evidence_ci.py' -v
       - name: Run provisioning coordinator interruption tests
         run: python -m unittest discover -s tests -p 'test_provisioning_coordinator_ci.py' -v
       - name: Run provisioning journal fail-closed tests
