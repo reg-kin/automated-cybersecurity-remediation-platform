@@ -12,7 +12,7 @@ from provisioning_journal import (
 )
 
 
-def execute_provisioning_stages(journal, application, operations):
+def execute_provisioning_stages(journal, application, operations, *, verifiers=None):
     """Execute every stage in order, recording completion after its verification.
 
     Each operation must return True only after it has performed and verified its
@@ -21,12 +21,19 @@ def execute_provisioning_stages(journal, application, operations):
     """
     if set(operations) != set(STAGES) or any(not callable(operations[s]) for s in STAGES):
         raise RuntimeError("Exactly one callable per provisioning stage is required.")
+    if (verifiers is None or set(verifiers) != set(STAGES)
+            or any(not callable(verifiers[s]) for s in STAGES)):
+        raise RuntimeError("Exactly one independent verifier per stage is required.")
     begin_provisioning(journal, application=application)
     for stage in STAGES:
         verified = operations[stage]()
         if verified is not True:
             raise RuntimeError(
                 f"Provisioning stage {stage} not verified; deployment prohibited."
+            )
+        if verifiers[stage]() is not True:
+            raise RuntimeError(
+                f"Provisioning stage {stage} independent verification failed; deployment prohibited."
             )
         advance_provisioning(journal, stage, evidence_confirmed=True)
     return assert_not_deployable(journal)
