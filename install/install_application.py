@@ -263,7 +263,7 @@ def stage_application_files(source, staging_root):
 
 
 
-def generate_release_manifest(application):
+def generate_release_manifest(application, output_path=None):
     """Create a deterministic SHA-256 manifest of staged application files."""
     application = Path(application)
 
@@ -331,7 +331,11 @@ def generate_release_manifest(application):
 
     entries.sort()
 
-    manifest = application.parent / "SHA256SUMS"
+    manifest = (
+        Path(output_path)
+        if output_path is not None
+        else application.parent / "SHA256SUMS"
+    )
 
     with manifest.open("x", encoding="utf-8", newline="\n") as output:
         for relative, digest in entries:
@@ -630,9 +634,22 @@ def validate_environment_file_conflicts():
         )
 
 
-def validate_installation(args):
-    source = Path(__file__).resolve().parent.parent
-    destination = args.destination.resolve()
+def validate_installation_source(source, destination):
+    """Validate a fresh installation using an explicit application source."""
+    source = Path(source).resolve(strict=True)
+    destination = Path(destination)
+
+    if not destination.is_absolute():
+        raise RuntimeError(
+            "Installation destination must be an absolute path."
+        )
+
+    if destination.is_symlink():
+        raise RuntimeError(
+            f"Installation destination is a symbolic link: {destination}"
+        )
+
+    destination = destination.resolve()
 
     if destination != DEFAULT_DESTINATION:
         raise RuntimeError(
@@ -665,6 +682,16 @@ def validate_installation(args):
     validate_api_port_conflicts(source)
 
     return source, destination
+
+
+def validate_installation(args):
+    """Preserve the repository-based validation CLI."""
+    source = Path(__file__).resolve().parent.parent
+
+    return validate_installation_source(
+        source,
+        args.destination,
+    )
 
 
 def main():
