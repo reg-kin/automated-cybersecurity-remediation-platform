@@ -29,6 +29,8 @@ jobs:
         run: python -m compileall -q install tests/test_release_publication_ci.py
       - name: Check whitespace
         run: git diff --check HEAD^ HEAD
+      - name: Run isolated Python environment provisioning tests
+        run: python -m unittest discover -s tests -p 'test_provision_python_ci.py' -v
       - name: Run staged application ownership tests
         run: python -m unittest discover -s tests -p 'test_prepare_ownership_ci.py' -v
       - name: Run offline environment provisioning tests
