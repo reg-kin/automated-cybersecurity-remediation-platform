@@ -17,6 +17,38 @@ post-remediation verification.
 See [Project Status](docs/PROJECT_STATUS.md) for current implementation and
 hardening status.
 
+## Public installation: validated scope
+
+The installation tooling has been validated in disposable Ubuntu 24.04 / Python 3.12
+CI environments, including a fresh PostgreSQL 16 database, release archive
+integrity, staged provisioning, configuration checks, and fail-closed recovery
+behaviour. This is **not** evidence of unattended production deployment or
+end-to-end operation of every scanner and remediation capability.
+
+- **Fresh database only:** See [Fresh Database Installation](#11-fresh-database-installation).
+  The database installer requires an already-created **empty** database and
+  rejects in-place upgrades of existing installations.
+- **Application release:** `install/package_release.py` builds an authenticated
+  release archive from an exact Git commit; `install/production_release.py`
+  validates it and optionally publishes **application files only** to the
+  supported fresh destination `/opt/automated-remediation`. Publication does
+  not configure or start services.
+- **Staged provisioning:** The installation code can stage pinned Python
+  dependencies, ownership, six example environment files, and systemd units.
+  It does not provide a one-command production activation. Operators must
+  configure their own secrets, dependencies, access controls and scanner
+  integrations, then validate runtime connectivity and verification before
+  enabling services.
+- **Activation boundary:** Never run the fresh installer against an existing
+  production database or enable `remediation-dispatcher.timer` as part of
+  installation. Review and approve any activation separately.
+
+Read [Production Installation Readiness](install/PRODUCTION_READINESS.md) and
+[Validation Handover](install/VALIDATION_HANDOVER.md) for the supported stages,
+limitations, safety gates and test evidence. These documents are the current
+installation handover, **not** a complete production deployment walkthrough.
+
+
 ---
 
 ## Architecture
