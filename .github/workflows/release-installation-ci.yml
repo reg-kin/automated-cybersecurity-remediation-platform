@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/production-installation-readiness
+      - feature/production-deployment-validation
   pull_request:
   workflow_dispatch:
 
@@ -43,6 +44,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_real_python_installation_ci.py' -v
       - name: Check offline provisioning CLI entry point
         run: python install/provision_offline_cli.py --help
+      - name: Run reference-host preflight safety regressions
+        run: python -m unittest discover -s tests -p 'test_reference_host_preflight_ci.py' -v
       - name: Check reference-host preflight entry point
         run: |
           python install/inspect_reference_host.py --help
