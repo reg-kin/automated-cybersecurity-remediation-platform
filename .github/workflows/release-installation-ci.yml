@@ -41,6 +41,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_deployment_configuration_readiness_ci.py' -v
       - name: Run real pinned Python installation and ownership integration
         run: python -m unittest discover -s tests -p 'test_real_python_installation_ci.py' -v
+      - name: Check offline provisioning CLI entry point
+        run: python install/provision_offline_cli.py --help
       - name: Run full offline provisioning integration tests
         run: python -m unittest discover -s tests -p 'test_full_provisioning_ci.py' -v
       - name: Run integrated middle-stage tests
