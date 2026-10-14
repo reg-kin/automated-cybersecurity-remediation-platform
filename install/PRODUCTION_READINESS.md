@@ -59,8 +59,10 @@ constitute a running production deployment.
    ownership, six configured environment files, systemd unit provisioning,
    runtime credentials/connectivity, and service activation—are
    **operator-controlled**. The staged provisioning function
-   `install/provision_staged_application.py` is a Python API, **not a
-   standalone production CLI**. It requires explicit caller-provided paths,
+   `install/provision_staged_application.py` is a Python API. The explicit
+   `install/provision_offline_cli.py` wrapper provides preflight by default
+   and requires `--provision --confirm-application` to perform the same
+   offline stages. It requires explicit caller-provided paths,
    user/group IDs and a private journal. Do not invoke it against live
    system paths without a reviewed deployment procedure. It never starts
    services or authorizes the remediation dispatcher timer.
@@ -74,8 +76,9 @@ invent missing commands or credentials.
 
 ## Deployment handoff: exact remaining integration boundary
 
-The current provisioning API **can** execute the five offline stages, but it
-is not yet a complete production deployment command. Its callable signature is:
+The provisioning API and its `install/provision_offline_cli.py` wrapper can
+execute the five offline stages, but neither is a complete production
+deployment command. Its callable signature is:
 
 ```python
 provision_staged_application(
@@ -83,6 +86,15 @@ provision_staged_application(
     uid=service_uid, gid=service_gid,
 )
 ```
+
+The CLI accepts `--application`, `--unit-destination`,
+`--environment-map` (a JSON object mapping the exact six canonical environment
+paths to explicit absolute destinations), `--journal`, `--uid`, and `--gid`.
+By default it only runs the read-only preflight. To write staged files the
+operator must additionally provide `--provision` and
+`--confirm-application` equal to the application path. The wrapper calls the
+existing verified provisioning function; it does not bypass its fail-closed
+journal or exclusive destination checks. Use isolated destinations first.
 
 The caller must supply an existing private staged application tree, an absent
 journal path inside a private directory, the full six-entry mapping from
