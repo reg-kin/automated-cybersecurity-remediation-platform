@@ -31,9 +31,12 @@ def inspect_host(application):
         raise RuntimeError("Reference environment requires Ubuntu 24.04.")
     for required in ("venv/bin/python", "venv/bin/gunicorn"):
         target = app / required
-        if not target.exists():
-            raise RuntimeError("Missing installed executable: " + required)
-    missing = [name for name in ENVIRONMENT_FILE_TEMPLATES if not Path(name).is_file()]
+        if target.is_symlink() and required.endswith("gunicorn"):
+            raise RuntimeError("Unexpected executable symlink: " + required)
+        if not target.is_file() or not os.access(target, os.X_OK):
+            raise RuntimeError("Missing or non-executable runtime: " + required)
+    missing = [name for name in ENVIRONMENT_FILE_TEMPLATES
+               if Path(name).is_symlink() or not Path(name).is_file()]
     if missing:
         raise RuntimeError("Missing canonical environment files: " + ", ".join(missing))
     import pwd
@@ -42,8 +45,12 @@ def inspect_host(application):
     if grp.getgrgid(account.pw_gid).gr_name != "automated-remediation":
         raise RuntimeError("Service account primary group mismatch.")
     for unit in inventory["unit_names"]:
-        if not (Path("/etc/systemd/system") / unit).is_file():
-            raise RuntimeError("Missing installed systemd unit: " + unit)
+        installed = Path("/etc/systemd/system") / unit
+        source = app / "deployment/systemd" / unit
+        if installed.is_symlink() or not installed.is_file():
+            raise RuntimeError("Missing or unsafe installed systemd unit: " + unit)
+        if installed.read_bytes() != source.read_bytes():
+            raise RuntimeError("Installed systemd unit differs from release: " + unit)
     return inventory
 
 
