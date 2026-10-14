@@ -72,6 +72,42 @@ installation claim requires an executable operator runbook covering the
 remaining stages and runtime validation; this guide intentionally does not
 invent missing commands or credentials.
 
+## Deployment handoff: exact remaining integration boundary
+
+The current provisioning API **can** execute the five offline stages, but it
+is not yet a complete production deployment command. Its callable signature is:
+
+```python
+provision_staged_application(
+    journal, application, unit_destination, environment_destinations,
+    uid=service_uid, gid=service_gid,
+)
+```
+
+The caller must supply an existing private staged application tree, an absent
+journal path inside a private directory, the full six-entry mapping from
+`ENVIRONMENT_FILE_TEMPLATES`, an existing unit destination, and the intended
+service identity. The function provisions Python packages, ownership,
+environment **examples** and unit files, and verifies the completed journal.
+It does not create the service account, configure real secrets, connect to
+scanners, install external services, or activate systemd. It cannot resume an
+interrupted transaction.
+
+**Integration constraint:** The supplied systemd units use fixed paths under
+`/opt/automated-remediation` and `/etc/*.env`. A private staged application
+and isolated CI destinations do not by themselves satisfy those runtime paths.
+Do not copy or enable those units until the actual destination, environment
+files, service account and dependent services have been reconciled. In
+particular, do not enable `remediation-dispatcher.timer` during installation.
+
+**Production acceptance evidence required before advertising an operational
+installation:** a documented, operator-approved fresh-host provisioning and
+activation procedure, with actual runtime credential/connectivity checks and
+at least one controlled end-to-end remediation/independent verification on a
+disposable target. Existing CI proves the offline stages and database path;
+it does **not** prove this final operational boundary. This is a defined
+release gate, not a request for unrelated features or optional test suites.
+
 ## Supported stages
 
 1. Inspect a private staged application, exact pinned requirements, unit manifests, and absent destinations.
