@@ -1,6 +1,6 @@
 # Production installation readiness and controlled handover
 
-This branch provides an **offline staged provisioning workflow**, not an unattended production installer or authorization to start services. The release and database workflows use disposable CI resources. A passing CI run does not validate a production host, live credentials, database migrations against production data, or network access.
+The repository provides an **offline staged provisioning workflow**, not an unattended production installer or authorization to start services. The release and database workflows use disposable CI resources. A passing CI run does not validate a production host, live credentials, database migrations against production data, or network access.
 
 ## Public clean-system installation path (current supported boundary)
 
@@ -10,11 +10,11 @@ separately created database**. The steps below are deliberately limited to
 operations exposed by the repository's actual CLI entry points; they do not
 constitute a running production deployment.
 
-1. Clone the release candidate for inspection (replace the branch with the
-   published release tag when one exists):
+1. Clone the current main branch for inspection (use a published release tag
+   instead when one exists):
 
    ```sh
-   git clone --branch feature/production-installation-readiness \\
+   git clone --branch main \\
      https://github.com/reg-kin/automated-cybersecurity-remediation-platform.git
    cd automated-cybersecurity-remediation-platform
    ```
@@ -119,6 +119,28 @@ at least one controlled end-to-end remediation/independent verification on a
 disposable target. Existing CI proves the offline stages and database path;
 it does **not** prove this final operational boundary. This is a defined
 release gate, not a request for unrelated features or optional test suites.
+
+## Reference deployment validation record (new branch)
+
+Deployment validation work starts from merged baseline
+`da521ff59f00e1ca40a6aa76ed523d94d2bbe20b`. A deployment is **not**
+validated merely by checking out this branch. Record the following evidence
+from a **new, disposable Ubuntu 24.04 host**, keeping passwords and tokens out
+of logs and the repository:
+
+| Gate | Evidence to retain | Initial status |
+| --- | --- | --- |
+| Host and dependencies | OS/Python/PostgreSQL versions, service-account identity, ports and dependency inventory | NOT RUN |
+| Installation | Release SHA-256, fresh-database migration result, completed offline provisioning journal | NOT RUN |
+| Configuration | Six environment-file metadata checks, non-placeholder settings and disabled Stage 2 bypass | NOT RUN |
+| Service startup | Approved unit names, `systemd-analyze verify`, startup and authenticated health checks | NOT RUN |
+| End-to-end operation | Disposable-target scanner result, controlled Ansible execution and independent Stage 2 finding absence | NOT RUN |
+| Recovery | Stop/rollback procedure exercised without changing production resources | NOT RUN |
+
+A failed or unexecuted gate remains **NOT VALIDATED**. Capture only redacted
+command output and specific evidence references; do not commit live secrets.
+The existing production VPS and `security_portal` database are excluded.
+`remediation-dispatcher.timer` remains disabled pending separate approval.
 
 ## Controlled service activation runbook (separate operator approval)
 
