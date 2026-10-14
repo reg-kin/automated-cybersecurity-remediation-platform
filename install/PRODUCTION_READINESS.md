@@ -120,6 +120,56 @@ disposable target. Existing CI proves the offline stages and database path;
 it does **not** prove this final operational boundary. This is a defined
 release gate, not a request for unrelated features or optional test suites.
 
+## Controlled service activation runbook (separate operator approval)
+
+This section is a **manual operational gate**, not an action performed by the
+installer or evidence that a live deployment has been tested. Execute only on
+an approved **new isolated host**, after the offline installation has completed.
+Do not use the existing production VPS as the test environment.
+
+1. **Reconcile installation paths and identity.** The systemd units reference
+   `/opt/automated-remediation`, `/opt/automated-remediation/venv`, and the
+   six canonical `/etc/*.env` files. Confirm that the actual installation
+   matches those paths and that the `automated-remediation` service account
+   exists and has the required access. An isolated staging tree is not a
+   substitute for the final application path.
+2. **Configure and verify credentials.** Replace all template placeholders in
+   the six restricted environment files. Check ownership, mode 0640, and the
+   disabled `TEST_SKIP_STAGE2` bypass using the existing
+   `verify_deployment_configuration` and `assess_offline_readiness` APIs.
+   These are static checks; they do not authenticate credentials.
+3. **Check service dependencies without starting anything.** Confirm that the
+   target database, Redis, Ansible Runner, scanner endpoints, network rules,
+   service ports, and referenced executables exist and are accessible from
+   the intended service identity. Inspect every unit and timer in
+   `deployment/systemd` for compatibility with the host. Use
+   `systemd-analyze verify` on the installed unit files as a syntax and
+   dependency diagnostic; investigate all failures before proceeding.
+4. **Approve a reversible change.** Record the release SHA-256, installation
+   inventory, database target, approved change window, rollback owner and
+   recovery plan. A failed provisioning journal cannot be resumed. Never
+   overwrite existing systemd units or environment files to make preflight
+   pass.
+5. **Activate only individually approved, non-dispatcher services.** After
+   the operator approves the exact service list, use `systemctl daemon-reload`
+   and `systemctl start <approved-service-name>.service` for each approved
+   service, one at a time. Verify `systemctl status`, relevant journal logs,
+   authenticated health/API responses and service-account permissions before
+   continuing. Do not bulk-enable units, start all units indiscriminately,
+   or expose management APIs publicly by default.
+6. **Exercise a disposable target.** Validate scanner authentication,
+   management-plane authorization, a controlled remediation execution, actual
+   Stage 1 Ansible evidence and independent Stage 2 scanner verification.
+   Document the outcome. Stop on failure and follow the approved rollback
+   procedure. Never substitute simulated CI evidence for this test.
+
+**Explicit exclusion:** Do **not** start or enable
+`remediation-dispatcher.timer` as part of this runbook. The dispatcher
+requires its own separate risk review and authorization. Do not run database
+migration tooling against `security_portal` or another populated database.
+A production-ready claim remains blocked until the above steps have been
+performed successfully and evidenced on an appropriate isolated host.
+
 ## Supported stages
 
 1. Inspect a private staged application, exact pinned requirements, unit manifests, and absent destinations.
