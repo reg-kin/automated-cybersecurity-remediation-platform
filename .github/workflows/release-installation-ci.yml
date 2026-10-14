@@ -43,6 +43,13 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_real_python_installation_ci.py' -v
       - name: Check offline provisioning CLI entry point
         run: python install/provision_offline_cli.py --help
+      - name: Check reference-host preflight entry point
+        run: |
+          python install/inspect_reference_host.py --help
+          if python install/inspect_reference_host.py --application /tmp; then
+            echo 'ERROR: unexpected reference-host preflight success'
+            exit 1
+          fi
       - name: Run full offline provisioning integration tests
         run: python -m unittest discover -s tests -p 'test_full_provisioning_ci.py' -v
       - name: Run integrated middle-stage tests
