@@ -14,8 +14,7 @@ constitute a running production deployment.
    instead when one exists):
 
    ```sh
-   git clone --branch main \\
-     https://github.com/reg-kin/automated-cybersecurity-remediation-platform.git
+   git clone --branch main https://github.com/reg-kin/automated-cybersecurity-remediation-platform.git
    cd automated-cybersecurity-remediation-platform
    ```
 
@@ -33,9 +32,7 @@ constitute a running production deployment.
    Replace `YOUR_EMPTY_DATABASE` with its actual name:
 
    ```sh
-   .venv/bin/python install/install_database.py \\
-     --database YOUR_EMPTY_DATABASE \\
-     --confirm-database YOUR_EMPTY_DATABASE
+   .venv/bin/python install/install_database.py --database YOUR_EMPTY_DATABASE --confirm-database YOUR_EMPTY_DATABASE
    ```
 
    This command changes **only the explicitly named database** and is for
