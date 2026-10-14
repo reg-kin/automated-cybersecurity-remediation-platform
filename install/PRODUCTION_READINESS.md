@@ -2,6 +2,76 @@
 
 This branch provides an **offline staged provisioning workflow**, not an unattended production installer or authorization to start services. The release and database workflows use disposable CI resources. A passing CI run does not validate a production host, live credentials, database migrations against production data, or network access.
 
+## Public clean-system installation path (current supported boundary)
+
+The supported reference environment for the tested installer is Ubuntu 24.04,
+Python 3.12 and PostgreSQL 16. Use a **new, isolated machine and an empty,
+separately created database**. The steps below are deliberately limited to
+operations exposed by the repository's actual CLI entry points; they do not
+constitute a running production deployment.
+
+1. Clone the release candidate for inspection (replace the branch with the
+   published release tag when one exists):
+
+   ```sh
+   git clone --branch feature/production-installation-readiness \\
+     https://github.com/reg-kin/automated-cybersecurity-remediation-platform.git
+   cd automated-cybersecurity-remediation-platform
+   ```
+
+2. Install the pinned Python dependencies in an isolated environment before
+   using the database installation CLI:
+
+   ```sh
+   python3 -m venv .venv
+   .venv/bin/python -m pip install -r requirements.txt
+   ```
+
+3. Provision an **already created, empty PostgreSQL database** with an account
+   permitted to install the schema. Set `PG_HOST`, `PG_PORT`, `PG_USER` and
+   `PG_PASSWORD` privately in the shell environment; never commit credentials.
+   Replace `YOUR_EMPTY_DATABASE` with its actual name:
+
+   ```sh
+   .venv/bin/python install/install_database.py \\
+     --database YOUR_EMPTY_DATABASE \\
+     --confirm-database YOUR_EMPTY_DATABASE
+   ```
+
+   This command changes **only the explicitly named database** and is for
+   fresh installations, not upgrades. Do not run it against a populated or
+   production database. If it fails, stop and inspect the error; do not try
+   to bypass the installer's refusal checks.
+
+4. For a release archive, `install/package_release.py` requires a full,
+   committed 40-character Git SHA and a new output filename. The resulting
+   SHA-256 digest must be retained alongside the archive. The separate
+   `install/production_release.py` command validates the archive using
+   `--archive`, `--sha256`, `--staging-parent` and the supported destination
+   `/opt/automated-remediation`. The staging parent must already exist, be
+   owned by the invoking user and be private (mode 0700). Its default mode is
+   **validation only**; `--publish-application-only` additionally requires
+   `--confirm-destination /opt/automated-remediation` and publishes files
+   without configuring or activating services. Do not publish over an
+   existing installation.
+
+5. The remaining stages—Python environment provisioning, application
+   ownership, six configured environment files, systemd unit provisioning,
+   runtime credentials/connectivity, and service activation—are
+   **operator-controlled**. The staged provisioning function
+   `install/provision_staged_application.py` is a Python API, **not a
+   standalone production CLI**. It requires explicit caller-provided paths,
+   user/group IDs and a private journal. Do not invoke it against live
+   system paths without a reviewed deployment procedure. It never starts
+   services or authorizes the remediation dispatcher timer.
+
+**Current result:** The repository supports validated *offline release
+preparation and fresh database installation*, not a fully documented,
+self-contained production activation from `git clone`. A full production
+installation claim requires an executable operator runbook covering the
+remaining stages and runtime validation; this guide intentionally does not
+invent missing commands or credentials.
+
 ## Supported stages
 
 1. Inspect a private staged application, exact pinned requirements, unit manifests, and absent destinations.
