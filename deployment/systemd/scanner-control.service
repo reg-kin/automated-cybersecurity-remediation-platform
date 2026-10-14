@@ -1,14 +1,15 @@
 [Unit]
 Description=Scanner Refresh Control Worker
-After=network.target redis-server.service
-Requires=redis-server.service
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
 User=automated-remediation
 Group=automated-remediation
+EnvironmentFile=/etc/remediation-rq-worker.env
 WorkingDirectory=/opt/automated-remediation/worker
-ExecStart=/usr/bin/rq worker scanner-control --path /opt/automated-remediation
+ExecStart=/opt/automated-remediation/venv/bin/rq worker scanner-control --path /opt/automated-remediation
 Restart=always
 RestartSec=5
 

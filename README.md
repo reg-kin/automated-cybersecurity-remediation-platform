@@ -17,6 +17,38 @@ post-remediation verification.
 See [Project Status](docs/PROJECT_STATUS.md) for current implementation and
 hardening status.
 
+## Public installation: validated scope
+
+The installation tooling has been validated in disposable Ubuntu 24.04 / Python 3.12
+CI environments, including a fresh PostgreSQL 16 database, release archive
+integrity, staged provisioning, configuration checks, and fail-closed recovery
+behaviour. This is **not** evidence of unattended production deployment or
+end-to-end operation of every scanner and remediation capability.
+
+- **Fresh database only:** See [Fresh Database Installation](#11-fresh-database-installation).
+  The database installer requires an already-created **empty** database and
+  rejects in-place upgrades of existing installations.
+- **Application release:** `install/package_release.py` builds an authenticated
+  release archive from an exact Git commit; `install/production_release.py`
+  validates it and optionally publishes **application files only** to the
+  supported fresh destination `/opt/automated-remediation`. Publication does
+  not configure or start services.
+- **Staged provisioning:** The installation code can stage pinned Python
+  dependencies, ownership, six example environment files, and systemd units.
+  It does not provide a one-command production activation. Operators must
+  configure their own secrets, dependencies, access controls and scanner
+  integrations, then validate runtime connectivity and verification before
+  enabling services.
+- **Activation boundary:** Never run the fresh installer against an existing
+  production database or enable `remediation-dispatcher.timer` as part of
+  installation. Review and approve any activation separately.
+
+Read [Production Installation Readiness](install/PRODUCTION_READINESS.md) and
+[Validation Handover](install/VALIDATION_HANDOVER.md) for the supported stages,
+limitations, safety gates and test evidence. These documents are the current
+installation handover, **not** a complete production deployment walkthrough.
+
+
 ---
 
 ## Architecture
@@ -311,19 +343,41 @@ deferred verification jobs.
 The database installation is defined through version-controlled schema,
 seed and migration files rather than a dump of the production database.
 
-11. Installation order
+11. Fresh Database Installation
 
-Apply the database files in the following order:
-database/001_schema.sql
-database/002_seed_finding_classes.sql
-database/003_seed_remediation_rules.sql
-database/migrations/004_deferred_verification.sql
-database/migrations/005_scanner_refresh_completions.sql
-database/migrations/006_scanner_refresh_finding_receipts.sql
-database/010_harden_remediation_routing.sql
+The supported fresh-database installation entry point is:
 
-The schema has been validated by constructing a clean PostgreSQL validation
-database from the repository SQL.
+    install/install_database.py
+
+The installer applies the version-controlled schema, seeds and migrations
+in the order defined by install/database.py. The current manifest contains
+24 SQL files, ending with migration 024 (scan-policy administration audit history).
+
+Prerequisites:
+
+- PostgreSQL is running and accessible.
+- The target database already exists and is empty.
+- The installation account has sufficient database privileges.
+- Python dependencies from requirements.txt are installed.
+- PG_HOST, PG_PORT, PG_USER and PG_PASSWORD are configured.
+
+Example, using a newly created empty database named regis_new_install:
+
+    python install/install_database.py \
+      --database regis_new_install \
+      --confirm-database regis_new_install
+
+The installer refuses protected database names and databases containing
+existing application objects. Both database arguments must match exactly.
+
+All migrations execute within a single transaction. If migration execution
+or installation verification fails, the transaction is rolled back.
+
+The installer commits only after successful execution and verification.
+
+IMPORTANT: This installer is for fresh database installations only.
+Do not use it to upgrade an existing deployment or reapply migrations
+to a production database. Back up existing deployments separately.
 
 12. Remediation Lifecycle
 

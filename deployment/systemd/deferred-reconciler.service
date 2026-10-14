@@ -1,6 +1,6 @@
 [Unit]
 Description=Deferred Stage 2 Verification Reconciler
-After=network-online.target docker.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]

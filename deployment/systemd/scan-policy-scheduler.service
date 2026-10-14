@@ -9,11 +9,11 @@ User=automated-remediation
 Group=automated-remediation
 
 EnvironmentFile=/etc/scan-policy-scheduler.env
-Environment=PYTHONPATH=/opt/regis-security
+Environment=PYTHONPATH=/opt/automated-remediation
 
-WorkingDirectory=/opt/regis-security
+WorkingDirectory=/opt/automated-remediation
 
-ExecStart=/opt/regis-security/venv/bin/python /opt/regis-security/scan_coordination/scheduler_runner.py --loop
+ExecStart=/opt/automated-remediation/venv/bin/python /opt/automated-remediation/scan_coordination/scheduler_runner.py --loop
 
 Restart=on-failure
 RestartSec=10
