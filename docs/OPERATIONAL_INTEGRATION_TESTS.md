@@ -225,3 +225,157 @@ For every subsequent integration test, record:
 
 Update this document and commit the evidence before moving to the
 next major integration capability.
+
+## VMware end-to-end remediation integration validation
+
+### Environment and scope
+
+- Date: 2026-10-16
+- Environment: Isolated VMware integration-test environment
+- Development branch: `feature/production-deployment-validation`
+- Controller endpoint: `127.0.0.1:9000`
+- Ansible Runner endpoint: `127.0.0.1:8081`
+- Verification Gateway endpoint: `127.0.0.1:18091`
+- Database: `remediation_platform_test` (PostgreSQL 16)
+- Target: Disposable Ubuntu VMware VM at `172.16.95.134`
+- Tenant: `VMWARE-INTEGRATION-TEST`
+- Finding ID: `1`
+- Scanner: `nmap_nse`
+- Finding class: `service_misconfiguration`
+- Finding key: `NMAP-NSE:ftp-anon:21/tcp`
+- Remediation playbook: `service_config.yml`
+- Remediation action: `disable_vsftpd_anonymous`
+- Successful execution ID: `36`
+
+### Test results
+
+| ID | Capability | Result | Evidence |
+|---|---|---|---|
+| INT-015 | Database-backed dispatcher selection | PASS | Eligible remediation queue selected finding `1`; execution `36` created with status `AWAITING_APPROVAL` |
+| INT-016 | Controller approval and Runner execution | PASS | `POST /executions/36/approve` returned HTTP 200 and `success=true` |
+| INT-017 | Stage 1 Ansible remediation verification | PASS | `service_config.yml`, action `disable_vsftpd_anonymous`, exit code `0`, `ANSIBLE_LOCAL`, `passed=true` |
+| INT-018 | Stage 2 independent scanner verification | PASS | Nmap NSE verification reported `present=false`; anonymous FTP authentication rejected with FTP code `530` |
+| INT-019 | Database-backed remediation lifecycle | PASS | Execution `36` persisted as `SUCCESS`; finding `1` persisted as `RESOLVED` |
+| INT-020 | Two-stage verification persistence | PASS | PostgreSQL recorded stages `1` and `2` as `PASSED` for execution `36` |
+| INT-021 | Dispatcher scheduling safety | PASS | `remediation-dispatcher.timer` confirmed `disabled` and `inactive` |
+
+### Preconditions
+
+The test used an isolated PostgreSQL database and a disposable VMware
+target. The finding was already present in the unified findings table
+and was eligible for remediation through the configured remediation
+rule and authorised execution target.
+
+Before the successful execution:
+
+- Ansible Runner was confirmed active.
+- Remediation Controller was confirmed active.
+- Verification Gateway was confirmed active.
+- The dispatcher timer remained disabled.
+- Finding `1` was confirmed present in `eligible_remediation_queue`.
+- One controlled remediation attempt was explicitly authorised.
+
+### Execution and results
+
+The dispatcher was started manually once using:
+
+`sudo systemctl start --no-block remediation-dispatcher.service`
+
+The dispatcher created execution `36`, initially in
+`AWAITING_APPROVAL`.
+
+Execution `36` was approved through the existing authenticated
+Controller endpoint:
+
+`POST http://127.0.0.1:9000/executions/36/approve`
+
+The Controller returned HTTP 200 with `success=true`.
+
+Stage 1 executed `service_config.yml` against `172.16.95.134` using
+the `disable_vsftpd_anonymous` remediation action.
+
+The Stage 1 response reported:
+
+- Ansible exit code: `0`
+- Verification type: `ANSIBLE_LOCAL`
+- Verification result: `passed=true`
+- Stage 1 status: `PASSED`
+
+Stage 2 independently checked the original Nmap finding:
+
+- Scanner: `nmap_nse`
+- Script: `ftp-anon`
+- Port: `21/tcp`
+- Verification method: `ftp_anonymous_authentication`
+- Authentication result: `anonymous_login_rejected_530`
+- Finding present: `false`
+- Stage 2 status: `PASSED`
+- Verification timestamp: `2026-10-16T12:52:13.906213+00:00`
+
+### Database confirmation
+
+A read-only PostgreSQL query joined `remediation_executions`,
+`unified_security_findings`, and `remediation_verifications`.
+
+The database returned:
+
+| Execution | Execution status | Finding | Finding status | Stage | Verification status |
+|---|---|---|---|---|---|
+| 36 | SUCCESS | 1 | RESOLVED | 1 | PASSED |
+| 36 | SUCCESS | 1 | RESOLVED | 2 | PASSED |
+
+This confirms that the Controller response and persisted database
+state agree.
+
+### Earlier failures and corrective actions
+
+Earlier executions `1`, `2`, and `3` were recorded as `FAILED`.
+
+The earlier integration attempts encountered infrastructure
+availability problems, including unavailable Ansible Runner and
+verification services.
+
+Execution `3` failed because the Controller could not connect to
+Ansible Runner at `127.0.0.1:8081`.
+
+The Ansible Runner service was started and its listening endpoint
+confirmed. The Verification Gateway was subsequently found inactive,
+started, and confirmed active before execution `36`.
+
+Following the earlier failed attempts, finding `1` was temporarily
+excluded from the remediation queue by its retry cooldown.
+
+The cooldown expired naturally. No remediation counters were manually
+reset, and no historical execution records were modified.
+
+### Scope of successful validation
+
+This test demonstrates the complete database-backed remediation
+workflow for one Nmap NSE service-misconfiguration finding:
+
+- Dispatcher eligibility and execution creation
+- Explicit Controller approval
+- Ansible remediation on an authorised disposable target
+- Immediate Stage 1 verification
+- Independent Stage 2 scanner verification
+- Persistence of both verification results
+- Successful execution completion
+- Final finding lifecycle transition to `RESOLVED`
+
+### Limitations
+
+This test does not establish:
+
+- End-to-end ingestion of a newly discovered scanner finding
+- Correct operation of every scanner orchestrator
+- Correct operation of every remediation capability
+- Automatic recovery from every infrastructure failure
+- Production remediation readiness
+- Successful operation against non-disposable customer assets
+
+The successful result applies specifically to the tested
+Nmap `ftp-anon` finding and `disable_vsftpd_anonymous` remediation
+action in the isolated VMware environment.
+
+The dispatcher timer was confirmed `disabled` and `inactive`
+after the successful test.
