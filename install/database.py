@@ -35,6 +35,7 @@ SQL_FILES = [
     "database/migrations/022_remediation_verification_functions.sql",
     "database/migrations/023_manual_verification.sql",
     "database/migrations/024_scan_policy_admin_audit.sql",
+    "database/migrations/025_fix_claim_finding_attempt_count.sql",
 ]
 
 

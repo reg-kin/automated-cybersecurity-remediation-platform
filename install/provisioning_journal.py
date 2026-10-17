@@ -38,13 +38,14 @@ def _write_new_journal(path, record):
         os.close(fd)
 
 
-def begin_provisioning(journal, *, application):
+def begin_provisioning(journal, *, application, native=False):
     """Create a new exclusive transaction marker; never reuse a prior journal."""
     application = Path(application)
     if not application.is_absolute():
         raise RuntimeError("Application must be absolute.")
     record = {
         "version": 1,
+        "profile": "native" if native else "legacy",
         "application": str(application),
         "state": "INCOMPLETE",
         "completed_stages": [],
@@ -68,6 +69,7 @@ def inspect_provisioning(journal):
         os.close(fd)
     if (not isinstance(record, dict)
         or record.get("version") != 1
+        or record.get("profile", "legacy") not in ("native", "legacy")
         or record.get("dispatcher_timer_activation") != "FORBIDDEN"
         or record.get("state") not in ("INCOMPLETE", TERMINAL)
         or not isinstance(record.get("completed_stages"), list)
@@ -79,14 +81,20 @@ def inspect_provisioning(journal):
     return record
 
 
-def assert_not_deployable(journal):
+def assert_profile(record, *, native=False):
+    if record.get("profile", "legacy") != ("native" if native else "legacy"):
+        raise RuntimeError("Provisioning journal deployment profile mismatch.")
+
+
+def assert_not_deployable(journal, *, native=False):
     """Fail closed unless a separately reviewed transaction is complete."""
     record = inspect_provisioning(journal)
+    assert_profile(record, native=native)
     if record["state"] != TERMINAL:
         raise RuntimeError("Provisioning incomplete; deployment prohibited.")
     return record
 
-def advance_provisioning(journal, stage, *, evidence_confirmed=False):
+def advance_provisioning(journal, stage, *, evidence_confirmed=False, native=False):
     """Record an externally verified stage; never execute the stage itself.
 
     Caller must affirm completion after validating real effects. Atomic
@@ -97,6 +105,7 @@ def advance_provisioning(journal, stage, *, evidence_confirmed=False):
         raise RuntimeError("Stage completion evidence is required.")
     path = Path(journal)
     record = inspect_provisioning(path)
+    assert_profile(record, native=native)
     if record["state"] != "INCOMPLETE":
         raise RuntimeError("Provisioning transaction already closed.")
     completed = record["completed_stages"]

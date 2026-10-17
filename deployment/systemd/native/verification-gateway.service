@@ -1,0 +1,23 @@
+[Unit]
+Description=Automated Remediation verification-gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=automated-remediation
+Group=automated-remediation
+WorkingDirectory=/opt/automated-remediation/verification
+EnvironmentFile=/etc/verification-gateway.env
+Environment=PYTHONPATH=/opt/automated-remediation:/opt/automated-remediation/verification
+Environment=PATH=/opt/automated-remediation/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=HOME=/var/lib/automated-remediation
+StateDirectory=automated-remediation
+UMask=0077
+ExecStart=/opt/automated-remediation/venv/bin/gunicorn --bind ${VERIFICATION_HOST}:${VERIFICATION_PORT} --workers 2 --timeout 1900 verification_gateway:app
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

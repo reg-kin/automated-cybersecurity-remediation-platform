@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -242,7 +243,7 @@ def create_policy(
 
 
 def main():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn:

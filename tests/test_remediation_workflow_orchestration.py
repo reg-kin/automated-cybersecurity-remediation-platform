@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -225,7 +226,7 @@ def create_assessment(
 
 
 def main():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn:

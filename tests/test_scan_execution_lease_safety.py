@@ -5,6 +5,7 @@
 import os
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 
 
 PG = {
@@ -239,7 +240,7 @@ def create_pending_execution(
 
 
 def main():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         cleanup(conn)

@@ -1,0 +1,24 @@
+[Unit]
+Description=Automated Remediation ansible-runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=automated-remediation
+Group=automated-remediation
+WorkingDirectory=/opt/automated-remediation/ansible-runner
+EnvironmentFile=/etc/ansible-runner.env
+Environment=PYTHONPATH=/opt/automated-remediation:/opt/automated-remediation/ansible-runner
+Environment=PATH=/opt/automated-remediation/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=ANSIBLE_ROLES_PATH=/opt/automated-remediation/ansible/roles
+Environment=HOME=/var/lib/automated-remediation
+StateDirectory=automated-remediation
+UMask=0077
+ExecStart=/opt/automated-remediation/venv/bin/gunicorn --bind ${ANSIBLE_RUNNER_HOST}:${ANSIBLE_RUNNER_PORT} --workers 2 --timeout 1900 server:app
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

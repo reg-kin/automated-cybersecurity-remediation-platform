@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -137,7 +138,7 @@ def build_vulnerability_finding():
 
 
 def clean_database():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn:
@@ -161,7 +162,7 @@ def clean_database():
         conn.close()
 
 def fetch_finding_asset(engine_source):
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn.cursor() as cur:
@@ -191,7 +192,7 @@ def fetch_finding_asset(engine_source):
 
 
 def fetch_finding_state(engine_source):
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn.cursor() as cur:
@@ -232,7 +233,7 @@ def fetch_finding_state(engine_source):
 
 
 def fetch_asset_count():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn.cursor() as cur:
@@ -250,7 +251,7 @@ def fetch_asset_count():
         conn.close()
 
 def set_test_asset_context(asset_id):
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn:
@@ -306,7 +307,7 @@ def set_test_asset_context(asset_id):
 
 
 def fetch_risk_assessment(engine_source):
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn.cursor() as cur:
@@ -356,7 +357,7 @@ def fetch_risk_assessment(engine_source):
 
 
 def fetch_risk_count(engine_source):
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn.cursor() as cur:
@@ -667,7 +668,7 @@ def main():
             # retry cooldown. Scanner recurrence is a new occurrence,
             # not a retry of the failed remediation attempt.
             #
-            conn = psycopg2.connect(**PG)
+            conn = smoke_connect(**PG)
 
             try:
                 with conn:

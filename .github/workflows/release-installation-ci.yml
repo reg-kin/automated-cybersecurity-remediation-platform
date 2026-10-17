@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/production-installation-readiness
+      - feature/production-deployment-validation
   pull_request:
   workflow_dispatch:
 
@@ -43,6 +44,15 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_real_python_installation_ci.py' -v
       - name: Check offline provisioning CLI entry point
         run: python install/provision_offline_cli.py --help
+      - name: Run reference-host preflight safety regressions
+        run: python -m unittest discover -s tests -p 'test_reference_host_preflight_ci.py' -v
+      - name: Check reference-host preflight entry point
+        run: |
+          python install/inspect_reference_host.py --help
+          if python install/inspect_reference_host.py --application /tmp; then
+            echo 'ERROR: unexpected reference-host preflight success'
+            exit 1
+          fi
       - name: Run full offline provisioning integration tests
         run: python -m unittest discover -s tests -p 'test_full_provisioning_ci.py' -v
       - name: Run integrated middle-stage tests
@@ -79,3 +89,9 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_install_configuration_ci.py' -v
       - name: Run isolated release installation regressions
         run: python -m unittest discover -s tests -p 'test_release_publication_ci.py' -v
+      - name: Run native deployment regressions
+        run: python -m unittest discover -s tests -p 'test_native_deployment_ci.py' -v
+      - name: Run release manifest regressions
+        run: python -m unittest discover -s tests -p 'test_release_manifest_ci.py' -v
+      - name: Run smoke safety regressions
+        run: python -m unittest discover -s tests -p 'test_release_smoke_safety_ci.py' -v
