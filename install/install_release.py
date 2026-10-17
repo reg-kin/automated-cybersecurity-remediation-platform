@@ -13,6 +13,7 @@ from pathlib import Path
 from install_application import (
     INSTALL_DIRECTORIES,
     INSTALL_FILES,
+    OPTIONAL_INSTALL_FILES,
     REQUIRED_FILES,
 )
 
@@ -402,7 +403,7 @@ def validate_release_members(archive_path):
     archive_path = Path(archive_path)
 
     permitted_roots = set(INSTALL_DIRECTORIES)
-    permitted_files = set(INSTALL_FILES)
+    permitted_files = set(INSTALL_FILES) | set(OPTIONAL_INSTALL_FILES)
 
     names = set()
     application_files = set()
@@ -474,7 +475,7 @@ def validate_release_members(archive_path):
 def _verify_release_stream(source, expected_sha256):
     """Validate an authenticated release stream."""
     permitted_roots = set(INSTALL_DIRECTORIES)
-    permitted_files = set(INSTALL_FILES)
+    permitted_files = set(INSTALL_FILES) | set(OPTIONAL_INSTALL_FILES)
 
     names = set()
     application_files = set()

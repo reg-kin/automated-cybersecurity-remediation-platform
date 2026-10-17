@@ -17,6 +17,8 @@ post-remediation verification.
 See [Project Status](docs/PROJECT_STATUS.md) for current implementation and
 hardening status.
 
+Docker and Compose are optional. See the [Ubuntu 24.04 native deployment runbook](docs/UBUNTU_NATIVE_DEPLOYMENT.md) for the opt-in systemd Runner and verification gateway profile.
+
 ## Public installation: validated scope
 
 The installation tooling has been validated in disposable Ubuntu 24.04 / Python 3.12
@@ -304,8 +306,9 @@ never be committed to the repository.
 
 9. n8n and Ansible Runner
 
-The reference deployment runs n8n and the Ansible Runner listener from the
-same Docker Compose project.
+The optional container reference deployment runs n8n and the Ansible Runner
+listener from the same Docker Compose project. Docker and Compose are not
+required for the native systemd profile linked above.
 
 Both attach to the external Docker network: portal-network
 

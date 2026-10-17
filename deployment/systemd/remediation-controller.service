@@ -10,11 +10,13 @@ Group=automated-remediation
 
 WorkingDirectory=/opt/automated-remediation
 
+Environment=CONTROLLER_HOST=127.0.0.1
+Environment=CONTROLLER_PORT=9000
 EnvironmentFile=/etc/remediation-controller.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/opt/automated-remediation
 
-ExecStart=/opt/automated-remediation/venv/bin/gunicorn --bind 127.0.0.1:9000 --workers 2 --timeout 1900 remediation.controller_api:app
+ExecStart=/opt/automated-remediation/venv/bin/gunicorn --bind ${CONTROLLER_HOST}:${CONTROLLER_PORT} --workers 2 --timeout 1900 remediation.controller_api:app
 
 Restart=on-failure
 RestartSec=5

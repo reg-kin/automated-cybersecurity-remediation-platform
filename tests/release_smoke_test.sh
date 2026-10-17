@@ -11,6 +11,7 @@ set -Eeuo pipefail
 #   ./tests/release_smoke_test.sh
 #
 # Optional environment variables:
+#   SMOKE_PG_MODE docker (default) or native (psql using PGHOST/PGPORT/PGPASSFILE)
 #   PG_CONTAINER   PostgreSQL container name
 #   PG_USER        PostgreSQL user
 #   TEST_DB        Temporary test database name
@@ -30,6 +31,31 @@ fi
 PG_CONTAINER="${PG_CONTAINER:-portal-datastore}"
 PG_USER="${PG_USER:-telemetry_admin}"
 TEST_DB="${TEST_DB:-automated_remediation_release_smoke_test}"
+SMOKE_PG_MODE="${SMOKE_PG_MODE:-docker}"
+# Restrict interpolated SQL identifiers and protect non-test database names.
+[[ "${TEST_DB}" =~ ^automated_remediation_release_smoke_test(_[a-z0-9_]+)?$ && ${#TEST_DB} -le 63 ]] || {
+    echo "ERROR: TEST_DB must use the automated_remediation_release_smoke_test prefix." >&2
+    exit 1
+}
+case "${SMOKE_PG_MODE}" in
+    docker) ;;
+    native)
+        export PGHOST="${PGHOST:-127.0.0.1}"
+        export PGPORT="${PGPORT:-5432}"
+        ;;
+    *) echo "ERROR: SMOKE_PG_MODE must be docker or native." >&2; exit 1 ;;
+esac
+DB_CREATED=false
+ROLE_CREATED=false
+
+smoke_psql() {
+    if [[ "${SMOKE_PG_MODE}" == native ]]; then
+        SMOKE_DB_PASSWORD="${SMOKE_DB_PASSWORD}" psql -X "$@"
+    else
+        docker exec -i -e SMOKE_DB_PASSWORD="${SMOKE_DB_PASSWORD}" \
+            "${PG_CONTAINER}" psql -X "$@"
+    fi
+}
 
 SMOKE_DB_USER="remediation_smoke_$$"
 SMOKE_DB_PASSWORD="$(
@@ -42,50 +68,39 @@ EXPECTED_TOTAL_RULES=44
 
 SPECIALISED_RULE_NAME="wazuh_sca_cis_ubuntu24_04_35594_crontab_permissions"
 
-SQL_FILES=(
-    "database/001_schema.sql"
-    "database/002_seed_finding_classes.sql"
-    "database/003_seed_remediation_rules.sql"
-    "database/migrations/004_deferred_verification.sql"
-    "database/migrations/005_scanner_refresh_completions.sql"
-    "database/migrations/006_scanner_refresh_finding_receipts.sql"
-    "database/migrations/007_asset_management.sql"
-    "database/migrations/008_application_asset_identity.sql"
-    "database/migrations/009_risk_contextualisation.sql"
-    "database/010_harden_remediation_routing.sql"
-    "database/migrations/011_risk_aware_remediation_prioritisation.sql"
-    "database/migrations/012_fix_package_vulnerability_rule.sql"
-    "database/migrations/013_restore_remediation_attempt_trigger.sql"
-    "database/migrations/014_remediation_retry_cooldown.sql"
-    "database/migrations/015_remediation_execution_targets.sql"
-    "database/migrations/016_asset_remediation_readiness.sql"
-    "database/migrations/017_scan_coordination.sql"
-    "database/migrations/018_scan_execution_lease_safety.sql"
-    "database/migrations/019_scan_execution_node_authentication.sql"
-    "database/migrations/020_scan_execution_context.sql"
-    "database/migrations/021_scan_policy_scheduling.sql"
-    "database/migrations/022_remediation_verification_functions.sql"
-    "database/migrations/023_manual_verification.sql"
-)
+# Read the installer's validated, ordered manifest; never glob migrations.
+SQL_MANIFEST="$(
+    "${PYTHON}" - "${ROOT_DIR}" <<'PYTHON'
+import sys
+sys.path.insert(0, sys.argv[1] + "/install")
+from database import ROOT_DIR, validate_manifest
+for path in validate_manifest():
+    print(path.relative_to(ROOT_DIR))
+PYTHON
+)" || { echo "ERROR: Database installation manifest is invalid." >&2; exit 1; }
+mapfile -t SQL_FILES <<< "${SQL_MANIFEST}"
 
 cleanup() {
-    if docker ps --format '{{.Names}}' | grep -Fxq "${PG_CONTAINER}"; then
-        docker exec -i "${PG_CONTAINER}" \
-            psql \
-            -U "${PG_USER}" \
-            -d postgres \
-            -v ON_ERROR_STOP=1 \
-            -c "DROP DATABASE IF EXISTS ${TEST_DB};" \
-            >/dev/null 2>&1 || true
-
-        docker exec -i "${PG_CONTAINER}" \
-            psql \
-            -U "${PG_USER}" \
-            -d postgres \
-            -v ON_ERROR_STOP=1 \
-            -c "DROP ROLE IF EXISTS ${SMOKE_DB_USER};" \
-            >/dev/null 2>&1 || true
+    local status=$? cleanup_failed=false
+    if [[ "${DB_CREATED}" == true ]]; then
+        if ! smoke_psql -U "${PG_USER}" -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE);" >/dev/null; then
+            echo "ERROR: Cleanup failed for database ${TEST_DB}; recovery required (${SMOKE_PG_MODE:-unknown})." >&2
+            cleanup_failed=true
+        fi
     fi
+    if [[ "${ROLE_CREATED}" == true ]]; then
+        if ! smoke_psql -U "${PG_USER}" -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP ROLE IF EXISTS ${SMOKE_DB_USER};" >/dev/null; then
+            echo "ERROR: Cleanup failed for role ${SMOKE_DB_USER}; recovery required (${SMOKE_PG_MODE:-unknown})." >&2
+            cleanup_failed=true
+        fi
+    fi
+    if [[ "${cleanup_failed}" == true ]]; then
+        echo "Recovery: database=${TEST_DB} role=${SMOKE_DB_USER}; retain these names until cleanup succeeds." >&2
+        [[ ${status} -ne 0 ]] || status=1
+    fi
+    exit "${status}"
 }
 
 fail() {
@@ -572,21 +587,22 @@ pass "Deployment contracts are consistent."
 echo
 echo "[7/11] Checking PostgreSQL test environment..."
 
-command -v docker >/dev/null 2>&1 \
-    || fail "docker command is not available."
+if [[ "${SMOKE_PG_MODE}" == docker ]]; then
+    command -v docker >/dev/null 2>&1 || fail "docker command is not available."
+    docker ps --format '{{.Names}}' | grep -Fxq "${PG_CONTAINER}" \
+        || fail "PostgreSQL container is not running: ${PG_CONTAINER}"
+else
+    command -v psql >/dev/null 2>&1 || fail "psql command is not available."
+fi
 
-docker ps --format '{{.Names}}' | grep -Fxq "${PG_CONTAINER}" \
-    || fail "PostgreSQL container is not running: ${PG_CONTAINER}"
-
-docker exec -i "${PG_CONTAINER}" \
-    psql \
+smoke_psql \
     -U "${PG_USER}" \
     -d postgres \
     -v ON_ERROR_STOP=1 \
     -c "SELECT 1;" \
     >/dev/null
 
-pass "PostgreSQL container is reachable."
+pass "PostgreSQL test server is reachable."
 
 # ---------------------------------------------------------------------------
 # 8. Clean database reconstruction
@@ -595,10 +611,16 @@ pass "PostgreSQL container is reachable."
 echo
 echo "[8/11] Reconstructing temporary database..."
 
-docker exec -i \
-    -e SMOKE_DB_PASSWORD="${SMOKE_DB_PASSWORD}" \
-    "${PG_CONTAINER}" \
-    psql \
+existing_db="$(smoke_psql -U "${PG_USER}" -d postgres -qAt -v ON_ERROR_STOP=1 \
+    -c "SELECT 1 FROM pg_database WHERE datname = '${TEST_DB}';")"
+[[ -z "${existing_db}" ]] || fail "Test database already exists; refusing to overwrite: ${TEST_DB}"
+
+existing_role="$(smoke_psql -U "${PG_USER}" -d postgres -qAt -v ON_ERROR_STOP=1 \
+    -c "SELECT 1 FROM pg_roles WHERE rolname = '${SMOKE_DB_USER}';")"
+[[ -z "${existing_role}" ]] || fail "Smoke role already exists: ${SMOKE_DB_USER}"
+# Mark attempts before sending SQL: the server may commit before transport fails.
+ROLE_CREATED=true
+smoke_psql \
     -U "${PG_USER}" \
     -d postgres \
     -v ON_ERROR_STOP=1 <<SQL
@@ -609,16 +631,9 @@ CREATE ROLE ${SMOKE_DB_USER}
     PASSWORD :'smoke_db_password';
 SQL
 
-docker exec -i "${PG_CONTAINER}" \
-    psql \
-    -U "${PG_USER}" \
-    -d postgres \
-    -v ON_ERROR_STOP=1 \
-    -c "DROP DATABASE IF EXISTS ${TEST_DB};" \
-    >/dev/null
+DB_CREATED=true
 
-docker exec -i "${PG_CONTAINER}" \
-    psql \
+smoke_psql \
     -U "${PG_USER}" \
     -d postgres \
     -v ON_ERROR_STOP=1 \
@@ -628,8 +643,7 @@ docker exec -i "${PG_CONTAINER}" \
 for file in "${SQL_FILES[@]}"; do
     echo "  Applying ${file}"
 
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -v ON_ERROR_STOP=1 \
@@ -637,8 +651,7 @@ for file in "${SQL_FILES[@]}"; do
         >/dev/null
 done
 
-docker exec -i "${PG_CONTAINER}" \
-    psql \
+smoke_psql \
     -U "${PG_USER}" \
     -d "${TEST_DB}" \
     -v ON_ERROR_STOP=1 <<SQL
@@ -668,48 +681,48 @@ echo "[9/11] Checking deterministic asset resolution..."
 
 PG_PASSWORD="${SMOKE_DB_PASSWORD}"
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_asset_resolver.py \
     || fail "Deterministic asset resolver regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_enricher_asset_integration.py \
     || fail "Enricher asset integration regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_asset_context.py \
     || fail "Asset context management regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_risk_persistence.py \
     || fail "Risk persistence regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_risk_reassessment.py \
     || fail "Risk reassessment regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
@@ -718,72 +731,72 @@ PG_PASSWORD="${PG_PASSWORD}" \
 
 "${PYTHON}" tests/test_controller_api_error_codes.py || fail "Controller API error-code regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_remediation_target_safety.py \
     || fail "Remediation target-safety regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_asset_remediation_readiness.py \
     || fail "Asset remediation readiness regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_administrative_readiness_management.py \
     || fail "Administrative readiness management regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_readiness_admin_api.py \
     || fail "Readiness administrative API regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_scan_coordination_foundation.py \
     || fail "Scan coordination foundation regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_scan_execution_lease_safety.py \
     || fail "Scan execution lease-safety regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_scan_coordination_service.py \
     || fail "Scan coordination service regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_scan_subject_resolution.py \
     || fail "Scan subject resolution regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
@@ -799,16 +812,16 @@ PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_systemd_service_identity.py \
     || fail "Systemd service identity regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_scan_execution_node_authentication.py \
     || fail "Scan execution-node authentication regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
@@ -825,8 +838,8 @@ PG_PASSWORD="${PG_PASSWORD}" \
 "${PYTHON}" tests/test_remediation_dispatcher.py \
     || fail "Remediation dispatcher regression failed."
 
-PG_HOST=127.0.0.1 \
-PG_PORT=5432 \
+PG_HOST="${PGHOST:-127.0.0.1}" \
+PG_PORT="${PGPORT:-5432}" \
 PG_DBNAME="${TEST_DB}" \
 PG_USER="${SMOKE_DB_USER}" \
 PG_PASSWORD="${PG_PASSWORD}" \
@@ -848,8 +861,7 @@ echo
 echo "[10/11] Checking reconstructed database invariants..."
 
 finding_class_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -857,8 +869,7 @@ finding_class_count="$(
 )"
 
 rule_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -866,8 +877,7 @@ rule_count="$(
 )"
 
 generic_rule_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -875,8 +885,7 @@ generic_rule_count="$(
 )"
 
 orphan_rule_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -890,8 +899,7 @@ orphan_rule_count="$(
 )"
 
 specialised_rule_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -913,8 +921,7 @@ specialised_rule_count="$(
 )"
 
 asset_table_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -934,8 +941,7 @@ asset_table_count="$(
 )"
 
 finding_asset_column_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -951,8 +957,7 @@ finding_asset_column_count="$(
 )"
 
 finding_asset_fk_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -965,8 +970,7 @@ finding_asset_fk_count="$(
 )"
 
 strong_identifier_index_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -980,8 +984,7 @@ strong_identifier_index_count="$(
 )"
 
 application_identifier_index_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -995,8 +998,7 @@ application_identifier_index_count="$(
 )"
 
 prioritised_queue_view_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1009,8 +1011,7 @@ prioritised_queue_view_count="$(
 )"
 
 risk_assessment_table_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1023,8 +1024,7 @@ risk_assessment_table_count="$(
 )"
 
 risk_assessment_finding_fk_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1037,8 +1037,7 @@ risk_assessment_finding_fk_count="$(
 )"
 
 risk_assessment_asset_fk_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1051,8 +1050,7 @@ risk_assessment_asset_fk_count="$(
 )"
 
 risk_assessment_pk_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1065,8 +1063,7 @@ risk_assessment_pk_count="$(
 )"
 
 scan_coordination_table_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1085,8 +1082,7 @@ scan_coordination_table_count="$(
 )"
 
 scan_node_credential_table_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1099,8 +1095,7 @@ scan_node_credential_table_count="$(
 )"
 
 scan_service_tier_column_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1117,8 +1112,7 @@ scan_service_tier_column_count="$(
 )"
 
 scan_service_tier_not_null_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1136,8 +1130,7 @@ scan_service_tier_not_null_count="$(
 )"
 
 scan_policy_execution_node_column_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1151,8 +1144,7 @@ scan_policy_execution_node_column_count="$(
 )"
 
 scan_tenant_asset_fk_table_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1179,8 +1171,7 @@ scan_tenant_asset_fk_table_count="$(
 )"
 
 scan_active_execution_index_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -At \
@@ -1244,8 +1235,7 @@ echo "  scan_active_idx:  ${scan_active_execution_index_count}"
     || fail "Specialised Wazuh SCA remediation rule is missing or incorrect."
 
 asset_identity_constraint_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -qAt \
@@ -1327,8 +1317,7 @@ asset_identity_constraint_count="$(
 )"
 
 application_identity_constraint_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -qAt \
@@ -1418,8 +1407,7 @@ application_identity_constraint_count="$(
 )"
 
 asset_tenant_constraint_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -qAt \
@@ -1486,8 +1474,7 @@ asset_tenant_constraint_count="$(
 )"
 
 risk_assessment_constraint_count="$(
-    docker exec -i "${PG_CONTAINER}" \
-        psql \
+    smoke_psql \
         -U "${PG_USER}" \
         -d "${TEST_DB}" \
         -qAt \

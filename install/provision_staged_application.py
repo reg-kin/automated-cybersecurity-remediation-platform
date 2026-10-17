@@ -18,7 +18,7 @@ from verify_complete_provisioning import verify_complete_provisioning
 
 def provision_staged_application(
     journal, application, unit_destination, environment_destinations,
-    *, uid, gid, installer=None,
+    *, uid, gid, installer=None, native=False,
 ):
     """Execute all five journal stages on a private staging tree.
 
@@ -28,19 +28,19 @@ def provision_staged_application(
     app = Path(application)
     if not app.is_absolute() or app.is_symlink():
         raise RuntimeError("Application must be an absolute non-symlink path.")
-    if not verified_preflight(app, unit_destination, environment_destinations):
+    if not verified_preflight(app, unit_destination, environment_destinations, native=native):
         raise RuntimeError("Read-only preflight verification failed.")
-    begin_provisioning(journal, application=app)
-    advance_provisioning(journal, "preflight", evidence_confirmed=True)
+    begin_provisioning(journal, application=app, native=native)
+    advance_provisioning(journal, "preflight", evidence_confirmed=True, native=native)
     execute_middle_stages(
-        journal, app, uid=uid, gid=gid, installer=installer
+        journal, app, uid=uid, gid=gid, native=native, installer=installer
     )
     execute_final_provisioning_stages(
         journal, app, unit_destination, environment_destinations,
-        uid=uid, gid=gid,
+        uid=uid, gid=gid, native=native,
     )
     return verify_complete_provisioning(
-        journal, app, unit_destination, environment_destinations, uid=uid, gid=gid
+        journal, app, unit_destination, environment_destinations, uid=uid, gid=gid, native=native
     )
 
 

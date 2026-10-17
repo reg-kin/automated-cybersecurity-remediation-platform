@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 
-def provision_python_environment(application, *, python_executable=sys.executable, installer=None):
+def provision_python_environment(application, *, python_executable=sys.executable, installer=None, native=False):
     """Create a fresh venv and install pinned requirements without shell execution.
 
     The caller supplies an installer command for offline CI tests; production
@@ -26,21 +26,25 @@ def provision_python_environment(application, *, python_executable=sys.executabl
         if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o022:
             raise RuntimeError("Application directory ownership or permissions unsafe.")
         requirements = application / "requirements.txt"
-        req_fd = os.open(requirements, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        try:
-            if not stat.S_ISREG(os.fstat(req_fd).st_mode):
-                raise RuntimeError("Requirements must be a regular file.")
-            with os.fdopen(req_fd, "r", closefd=False) as inp:
-                lines = inp.readlines()
-        finally:
-            os.close(req_fd)
-        if not lines or any(
-            not line.strip() or line.lstrip().startswith("#")
-            or not __import__("re").fullmatch(
-                r"[A-Za-z0-9][A-Za-z0-9_.-]*==[A-Za-z0-9][A-Za-z0-9_.+!-]*", line.strip()
-            ) for line in lines
-        ):
-            raise RuntimeError("Requirements must contain only pinned package versions.")
+        requirement_files = [requirements]
+        if native:
+            requirement_files.append(application / "deployment/requirements-native.txt")
+        for requirements in requirement_files:
+            req_fd = os.open(requirements, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                if not stat.S_ISREG(os.fstat(req_fd).st_mode):
+                    raise RuntimeError("Requirements must be a regular file.")
+                with os.fdopen(req_fd, "r", closefd=False) as inp:
+                    lines = inp.readlines()
+            finally:
+                os.close(req_fd)
+            if not lines or any(
+                not line.strip() or line.lstrip().startswith("#")
+                or not __import__("re").fullmatch(
+                    r"[A-Za-z0-9][A-Za-z0-9_.-]*==[A-Za-z0-9][A-Za-z0-9_.+!-]*", line.strip()
+                ) for line in lines
+            ):
+                raise RuntimeError("Requirements must contain only pinned package versions.")
         try:
             os.stat("venv", dir_fd=app_fd, follow_symlinks=False)
         except FileNotFoundError:
@@ -55,7 +59,8 @@ def provision_python_environment(application, *, python_executable=sys.executabl
         if not pip_command:
             raise RuntimeError("Installer command must not be empty.")
         subprocess.run(
-            pip_command + ["install", "--requirement", str(requirements)],
+            pip_command + ["install"] + [arg for path in requirement_files
+                                       for arg in ("--requirement", str(path))],
             check=True,
             cwd=str(application),
         )

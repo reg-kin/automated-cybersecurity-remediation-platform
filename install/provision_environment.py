@@ -7,22 +7,23 @@ import os
 import stat
 from pathlib import Path
 
-from install_application import ENVIRONMENT_FILE_TEMPLATES
+from install_application import environment_templates
 
 
-def provision_environment_files(source, destinations, uid, gid):
+def provision_environment_files(source, destinations, uid, gid, *, native=False):
     """Provision the exact declared template set to caller-provided paths.
 
     destinations maps the canonical /etc paths to isolated or production paths.
     Every destination must have an existing, trusted parent; all targets must
     be absent before any write. No credentials are generated.
     """
+    templates = environment_templates(native=native)
     source = Path(source).resolve(strict=True)
-    if set(destinations) != set(ENVIRONMENT_FILE_TEMPLATES):
+    if set(destinations) != set(templates):
         raise RuntimeError("Environment destination mapping must be complete and exact.")
     prepared = []
     seen = set()
-    for canonical, relative in sorted(ENVIRONMENT_FILE_TEMPLATES.items()):
+    for canonical, relative in sorted(templates.items()):
         template = source / relative
         if template.is_symlink() or not template.is_file():
             raise RuntimeError(f"Missing safe environment template: {relative}")
