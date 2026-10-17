@@ -89,3 +89,9 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_install_configuration_ci.py' -v
       - name: Run isolated release installation regressions
         run: python -m unittest discover -s tests -p 'test_release_publication_ci.py' -v
+      - name: Run native deployment regressions
+        run: python -m unittest discover -s tests -p 'test_native_deployment_ci.py' -v
+      - name: Run release manifest regressions
+        run: python -m unittest discover -s tests -p 'test_release_manifest_ci.py' -v
+      - name: Run smoke safety regressions
+        run: python -m unittest discover -s tests -p 'test_release_smoke_safety_ci.py' -v

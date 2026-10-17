@@ -184,61 +184,6 @@ class NativeDeploymentTests(unittest.TestCase):
                     count += 1
         self.assertGreaterEqual(count, 7)
 
-    def test_smoke_cleanup_failure_preserves_status_and_recovery(self):
-        script = (ROOT / 'tests/release_smoke_test.sh').read_text()
-        cleanup = script[script.index('cleanup() {'):script.index('\nfail() {')]
-        for status in (0, 7):
-            command = f'''DB_CREATED=true
-ROLE_CREATED=true
-TEST_DB=automated_remediation_release_smoke_test
-SMOKE_DB_USER=remediation_smoke_test
-PG_USER=test
-smoke_psql() {{ echo "$*" >&2; return 1; }}
-{cleanup}
-trap cleanup EXIT
-exit {status}
-'''
-            result = subprocess.run(['bash', '-c', command], capture_output=True, text=True)
-            self.assertEqual(result.returncode, status or 1)
-            self.assertIn('WITH (FORCE)', result.stderr)
-            self.assertIn('Recovery: database=', result.stderr)
-            self.assertIn('role=remediation_smoke_test', result.stderr)
-        self.assertLess(script.index('ROLE_CREATED=true'), script.index('CREATE ROLE'))
-        self.assertLess(script.index('DB_CREATED=true'), script.index('CREATE DATABASE'))
-
-    def test_smoke_server_creation_then_client_failure(self):
-        script = (ROOT / 'tests/release_smoke_test.sh').read_text()
-        cleanup = script[script.index('cleanup() {'):script.index('\nfail() {')]
-        creation = script[script.index('existing_db='):script.index('for file in "${SQL_FILES[@]}";', script.index('existing_db='))]
-        for failure in ('ROLE', 'DATABASE'):
-            marker = self.root / 'transport-calls'
-            marker.unlink(missing_ok=True)
-            command = f'''set -Eeuo pipefail
-DB_CREATED=false
-ROLE_CREATED=false
-TEST_DB=automated_remediation_release_smoke_test
-SMOKE_DB_USER=remediation_smoke_test
-PG_USER=test
-smoke_psql() {{
-    local sql="$*"
-    if [[ "$sql" != *"-c "* ]]; then sql="$(cat)"; fi
-    echo "$sql" >> '{marker}'
-    if [[ "$sql" == *"CREATE {failure}"* ]]; then return 9; fi
-}}
-fail() {{ exit 1; }}
-{cleanup}
-trap cleanup EXIT
-{creation}
-'''
-            result = subprocess.run(['bash', '-c', command], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 9)
-            calls = marker.read_text()
-            self.assertIn('DROP ROLE IF EXISTS remediation_smoke_test', calls)
-            if failure == 'DATABASE':
-                self.assertIn('DROP DATABASE IF EXISTS automated_remediation_release_smoke_test WITH (FORCE)', calls)
-            else:
-                self.assertNotIn('DROP DATABASE', calls)
-
     def test_native_dependency_command(self):
         with patch('provision_python.subprocess.run') as run:
             provision_python_environment(self.app, native=True, installer=['/bin/true'])
@@ -303,42 +248,6 @@ trap cleanup EXIT
             provision_staged_application(self.root / 'journal', self.app, self.units, self.mapping,
                                          uid=os.geteuid(), gid=os.getegid(), native=True)
         self.assertFalse((self.root / 'journal').exists())
-
-    def test_smoke_cleanup_only_removes_created_objects(self):
-        script = (ROOT / 'tests/release_smoke_test.sh').read_text()
-        cleanup = script[script.index('cleanup() {'):script.index('\nfail() {')]
-        for created in ('false', 'true'):
-            marker = self.root / 'calls'
-            marker.unlink(missing_ok=True)
-            command = f'''DB_CREATED={created}
-ROLE_CREATED={created}
-TEST_DB=automated_remediation_release_smoke_test
-SMOKE_DB_USER=remediation_smoke_test
-smoke_psql() {{ printf '%s\\n' "$*" >> '{marker}'; }}
-{cleanup}
-cleanup
-'''
-            subprocess.run(['bash', '-c', command], check=True)
-            self.assertEqual(marker.exists(), created == 'true')
-            if created == 'true':
-                self.assertIn('DROP DATABASE IF EXISTS automated_remediation_release_smoke_test', marker.read_text())
-                self.assertIn('DROP ROLE IF EXISTS remediation_smoke_test', marker.read_text())
-
-    def test_smoke_transport_modes_without_database(self):
-        script = (ROOT / 'tests/release_smoke_test.sh').read_text()
-        function = script[script.index('smoke_psql() {'):script.index('\nSMOKE_DB_USER=')]
-        for mode, expected in [('native', 'psql -X'), ('docker', 'docker exec -i')]:
-            command = f'''SMOKE_PG_MODE={mode}
-SMOKE_DB_PASSWORD=TEST_ONLY
-PG_CONTAINER=test-container
-psql() {{ printf 'psql %s\\n' "$*"; }}
-docker() {{ printf 'docker %s\\n' "$*"; }}
-{function}
-smoke_psql -U test-user -d test-db
-'''
-            result = subprocess.run(['bash', '-c', command], capture_output=True, text=True, check=True)
-            self.assertIn(expected, result.stdout)
-            self.assertIn('-U test-user -d test-db', result.stdout)
 
 
 if __name__ == '__main__':

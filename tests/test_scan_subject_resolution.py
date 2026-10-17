@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 from psycopg2.extras import Json
 
 
@@ -246,7 +247,7 @@ def expect_not_resolvable(
 
 
 def main():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn:

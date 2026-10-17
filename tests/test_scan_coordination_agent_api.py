@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -298,14 +299,14 @@ def assert_error(
 
 
 def main():
-    setup_conn = psycopg2.connect(
+    setup_conn = smoke_connect(
         **PG
     )
 
     original_connect = agent_api.db.connect
 
     def test_connect():
-        return psycopg2.connect(
+        return smoke_connect(
             **PG
         )
 

@@ -30,37 +30,47 @@ fi
 
 PG_CONTAINER="${PG_CONTAINER:-portal-datastore}"
 PG_USER="${PG_USER:-telemetry_admin}"
-TEST_DB="${TEST_DB:-automated_remediation_release_smoke_test}"
 SMOKE_PG_MODE="${SMOKE_PG_MODE:-docker}"
-# Restrict interpolated SQL identifiers and protect non-test database names.
-[[ "${TEST_DB}" =~ ^automated_remediation_release_smoke_test(_[a-z0-9_]+)?$ && ${#TEST_DB} -le 63 ]] || {
-    echo "ERROR: TEST_DB must use the automated_remediation_release_smoke_test prefix." >&2
-    exit 1
+# Never accept libpq connection strings, service overrides or multiple endpoints.
+[[ -z "${PGSERVICE:-}${PGSERVICEFILE:-}${PGHOSTADDR:-}${PGOPTIONS:-}${PGREQUIRESSL:-}${PGREQUIREPEER:-}${PGGSSENCMODE:-}${PGKRBSRVNAME:-}${PGGSSLIB:-}${PGREALM:-}${PGREQUIREAUTH:-}${PGLOADBALANCEHOSTS:-}${PGTARGETSESSIONATTRS:-}${PGSSLNEGOTIATION:-}" ]] || {
+    echo "ERROR: libpq endpoint, session or authentication overrides are not supported." >&2; exit 1;
 }
+export PGHOST="${PGHOST:-127.0.0.1}"
+export PGPORT="${PGPORT:-5432}"
+[[ "${PGHOST}" =~ ^[a-zA-Z0-9_.:-]+$ && "${PGPORT}" =~ ^[0-9]{1,5}$ ]] &&
+    (( 10#${PGPORT} > 0 && 10#${PGPORT} <= 65535 )) || {
+    echo "ERROR: Invalid PostgreSQL host or port." >&2; exit 1;
+}
+[[ "${PG_USER}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ && ${#PG_USER} -le 63 ]] || exit 1
 case "${SMOKE_PG_MODE}" in
-    docker) ;;
-    native)
-        export PGHOST="${PGHOST:-127.0.0.1}"
-        export PGPORT="${PGPORT:-5432}"
-        ;;
+    docker|native) ;;
     *) echo "ERROR: SMOKE_PG_MODE must be docker or native." >&2; exit 1 ;;
 esac
+export PGCONNECT_TIMEOUT=5
+INVOCATION_ID="$("${PYTHON}" -c 'import secrets; print(secrets.token_hex(10))')"
+TEST_DB="${TEST_DB:-automated_remediation_release_smoke_test}_${INVOCATION_ID}"
+[[ "${TEST_DB}" =~ ^automated_remediation_release_smoke_test_[a-z0-9_]+$ && ${#TEST_DB} -le 63 ]] || {
+    echo "ERROR: Invalid TEST_DB prefix (maximum 42 ASCII bytes before the 21-byte random suffix)." >&2; exit 1;
+}
 DB_CREATED=false
 ROLE_CREATED=false
+DB_OID=
+ROLE_OID=
+CREATION_ATTEMPTED=false
+DB_CREATION_ATTEMPTED=false
+DB_REMOVED=false
 
 smoke_psql() {
     if [[ "${SMOKE_PG_MODE}" == native ]]; then
-        SMOKE_DB_PASSWORD="${SMOKE_DB_PASSWORD}" psql -X "$@"
+        SMOKE_DB_PASSWORD="${SMOKE_DB_PASSWORD}" psql -X -w -h "${PGHOST}" -p "${PGPORT}" "$@"
     else
-        docker exec -i -e SMOKE_DB_PASSWORD="${SMOKE_DB_PASSWORD}" \
-            "${PG_CONTAINER}" psql -X "$@"
+        docker exec -i -e PGCONNECT_TIMEOUT=5 -e SMOKE_DB_PASSWORD="${SMOKE_DB_PASSWORD}" \
+            "${PG_CONTAINER}" env -u PGSERVICE -u PGSERVICEFILE -u PGHOSTADDR -u PGOPTIONS -u PGREQUIRESSL -u PGREQUIREPEER -u PGGSSENCMODE -u PGKRBSRVNAME -u PGGSSLIB -u PGREALM -u PGREQUIREAUTH -u PGLOADBALANCEHOSTS -u PGTARGETSESSIONATTRS -u PGSSLNEGOTIATION psql -X -w -h 127.0.0.1 -p 5432 "$@"
     fi
 }
 
-SMOKE_DB_USER="remediation_smoke_$$"
-SMOKE_DB_PASSWORD="$(
-    "${PYTHON}" -c 'import secrets; print(secrets.token_urlsafe(32))'
-)"
+SMOKE_DB_USER="remediation_smoke_${INVOCATION_ID}"
+SMOKE_DB_PASSWORD="$("${PYTHON}" -c 'import secrets; print(secrets.token_urlsafe(32))')"
 
 EXPECTED_FINDING_CLASSES=43
 EXPECTED_GENERIC_RULES=43
@@ -82,22 +92,45 @@ mapfile -t SQL_FILES <<< "${SQL_MANIFEST}"
 
 cleanup() {
     local status=$? cleanup_failed=false
-    if [[ "${DB_CREATED}" == true ]]; then
-        if ! smoke_psql -U "${PG_USER}" -d postgres -v ON_ERROR_STOP=1 \
-            -c "DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE);" >/dev/null; then
-            echo "ERROR: Cleanup failed for database ${TEST_DB}; recovery required (${SMOKE_PG_MODE:-unknown})." >&2
-            cleanup_failed=true
-        fi
+    if [[ "${CREATION_ATTEMPTED:-false}" == true && ( "${DB_CREATED}" != true || "${ROLE_CREATED}" != true ) ]]; then
+        cleanup_failed=true
+        echo "Manual review: database=${TEST_DB} role=${SMOKE_DB_USER}; creation or ownership was not fully acknowledged." >&2
     fi
-    if [[ "${ROLE_CREATED}" == true ]]; then
-        if ! smoke_psql -U "${PG_USER}" -d postgres -v ON_ERROR_STOP=1 \
-            -c "DROP ROLE IF EXISTS ${SMOKE_DB_USER};" >/dev/null; then
-            echo "ERROR: Cleanup failed for role ${SMOKE_DB_USER}; recovery required (${SMOKE_PG_MODE:-unknown})." >&2
-            cleanup_failed=true
+    local kind name oid actual drop_response
+    for kind in DATABASE ROLE; do
+        if [[ "${kind}" == DATABASE ]]; then
+            [[ "${DB_CREATED}" == true ]] || continue
+            name="${TEST_DB}"; oid="${DB_OID}"
+            actual="$(smoke_psql -U "${PG_USER}" -d postgres -qAt -v ON_ERROR_STOP=1 \
+                -c "SELECT oid FROM pg_database WHERE datname='${name}' AND datdba=${ROLE_OID} AND shobj_description(oid, 'pg_database')='${INVOCATION_ID}';")" || actual=
+        else
+            [[ "${ROLE_CREATED}" == true ]] || continue
+            if [[ "${DB_CREATION_ATTEMPTED:-false}" == true && "${DB_REMOVED:-false}" != true ]]; then
+                echo "ERROR: Retaining role ${SMOKE_DB_USER}: database ${TEST_DB} has not been safely removed." >&2
+                cleanup_failed=true
+                continue
+            fi
+            name="${SMOKE_DB_USER}"; oid="${ROLE_OID}"
+            actual="$(smoke_psql -U "${PG_USER}" -d postgres -qAt -v ON_ERROR_STOP=1 \
+                -c "SELECT oid FROM pg_roles WHERE rolname='${name}' AND shobj_description(oid, 'pg_authid')='${INVOCATION_ID}';")" || actual=
         fi
-    fi
+        if [[ ! "${oid}" =~ ^[0-9]+$ || "${actual}" != "${oid}" ]]; then
+            echo "ERROR: Cannot establish ownership of ${kind} ${name}; leaving it untouched." >&2
+            cleanup_failed=true
+            continue
+        fi
+        local suffix=""
+        [[ "${kind}" != DATABASE ]] || suffix=" WITH (FORCE)"
+        if ! drop_response="$(smoke_psql -U "${PG_USER}" -d postgres -At -v ON_ERROR_STOP=1 \
+            -c "DROP ${kind} ${name}${suffix};")" || [[ "${drop_response}" != "DROP ${kind}" ]]; then
+            echo "ERROR: Cleanup failed for ${kind} ${name}." >&2
+            cleanup_failed=true
+        elif [[ "${kind}" == DATABASE ]]; then
+            DB_REMOVED=true
+        fi
+    done
     if [[ "${cleanup_failed}" == true ]]; then
-        echo "Recovery: database=${TEST_DB} role=${SMOKE_DB_USER}; retain these names until cleanup succeeds." >&2
+        echo "Recovery: mode=${SMOKE_PG_MODE:-unknown} host=${PGHOST:-unknown} port=${PGPORT:-unknown} container=${PG_CONTAINER:-none} database=${TEST_DB} database_oid=${DB_OID:-unknown} role=${SMOKE_DB_USER} role_oid=${ROLE_OID:-unknown} marker=${INVOCATION_ID}; inspect owner, OIDs and comments on this endpoint before manual removal; remove the database before its role." >&2
         [[ ${status} -ne 0 ]] || status=1
     fi
     exit "${status}"
@@ -425,7 +458,7 @@ fi
 
 # The repository root is the Python package import root for RQ workers.
 grep -Fq \
-    'ExecStart=/usr/bin/rq worker ai-enrichment --path /opt/automated-remediation' \
+    'ExecStart=/opt/automated-remediation/venv/bin/rq worker ai-enrichment --path /opt/automated-remediation' \
     "${ENRICHER_SERVICE}" \
     || fail "AI enrichment worker uses the wrong RQ import path."
 
@@ -618,27 +651,52 @@ existing_db="$(smoke_psql -U "${PG_USER}" -d postgres -qAt -v ON_ERROR_STOP=1 \
 existing_role="$(smoke_psql -U "${PG_USER}" -d postgres -qAt -v ON_ERROR_STOP=1 \
     -c "SELECT 1 FROM pg_roles WHERE rolname = '${SMOKE_DB_USER}';")"
 [[ -z "${existing_role}" ]] || fail "Smoke role already exists: ${SMOKE_DB_USER}"
-# Mark attempts before sending SQL: the server may commit before transport fails.
-ROLE_CREATED=true
-smoke_psql \
+CREATION_ATTEMPTED=true
+# Failed CREATE may have committed: never infer ownership from an attempt.
+if ! smoke_psql \
     -U "${PG_USER}" \
     -d postgres \
     -v ON_ERROR_STOP=1 <<SQL
 \\getenv smoke_db_password SMOKE_DB_PASSWORD
 
+BEGIN;
 CREATE ROLE ${SMOKE_DB_USER}
     LOGIN
     PASSWORD :'smoke_db_password';
+COMMENT ON ROLE ${SMOKE_DB_USER} IS '${INVOCATION_ID}';
+COMMIT;
 SQL
+then
+    fail "Ambiguous role creation; manual review required: ${SMOKE_DB_USER}"
+fi
+ROLE_OID="$(smoke_psql -U "${PG_USER}" -d postgres -qAt -v ON_ERROR_STOP=1 -c "SELECT oid FROM pg_roles WHERE rolname='${SMOKE_DB_USER}';")"
+[[ "${ROLE_OID}" =~ ^[0-9]+$ ]] || fail "Ambiguous role OID; manual review required."
+ROLE_CREATED=true
 
+DB_CREATION_ATTEMPTED=true
+if ! create_response="$(smoke_psql -U "${PG_USER}" -d postgres -At -v ON_ERROR_STOP=1 \
+    -c "CREATE DATABASE ${TEST_DB} OWNER ${SMOKE_DB_USER};")" || [[ "${create_response}" != "CREATE DATABASE" ]]; then
+    # The role may own a database after an ambiguous CREATE. Retain both.
+    ROLE_CREATED=false
+    fail "Ambiguous database creation; manual review required: ${TEST_DB} ${SMOKE_DB_USER}"
+fi
+if ! comment_response="$(smoke_psql -U "${PG_USER}" -d postgres -At -v ON_ERROR_STOP=1 \
+    -c "COMMENT ON DATABASE ${TEST_DB} IS '${INVOCATION_ID}';")" || [[ "${comment_response}" != COMMENT ]]; then
+    fail "Ambiguous database comment; manual review required: ${TEST_DB} ${SMOKE_DB_USER}"
+fi
+DB_OID="$(smoke_psql -U "${PG_USER}" -d postgres -qAt -v ON_ERROR_STOP=1 -c "SELECT oid FROM pg_database WHERE datname='${TEST_DB}';")"
+[[ "${DB_OID}" =~ ^[0-9]+$ ]] || fail "Ambiguous database OID; manual review required."
+SMOKE_EXPECTED_ENDPOINT="$(smoke_psql -U "${PG_USER}" -d "${TEST_DB}" -qAt -v ON_ERROR_STOP=1 \
+    -c "SELECT inet_server_addr()::text || ':' || inet_server_port() || ':' || oid || ':' || shobj_description(oid, 'pg_database') FROM pg_database WHERE datname=current_database();")"
+[[ "${SMOKE_EXPECTED_ENDPOINT}" =~ ^[a-zA-Z0-9_.:-]+:[0-9]+:${DB_OID}:${INVOCATION_ID}$ ]] || fail "Ambiguous server identity response; manual review required."
 DB_CREATED=true
+export SMOKE_PG_MODE
+export SMOKE_EXPECTED_ENDPOINT
+export SMOKE_DISPOSABLE_DATABASE="${TEST_DB}"
+export PG_DBNAME="${TEST_DB}" PG_HOST="${PGHOST}" PG_PORT="${PGPORT}"
+export PG_PASSWORD="${SMOKE_DB_PASSWORD}"
+PG_USER="${SMOKE_DB_USER}" "${PYTHON}" -c 'from sys import path; path.insert(0, "tests"); from smoke_database_guard import connect; connect().close()'
 
-smoke_psql \
-    -U "${PG_USER}" \
-    -d postgres \
-    -v ON_ERROR_STOP=1 \
-    -c "CREATE DATABASE ${TEST_DB};" \
-    >/dev/null
 
 for file in "${SQL_FILES[@]}"; do
     echo "  Applying ${file}"

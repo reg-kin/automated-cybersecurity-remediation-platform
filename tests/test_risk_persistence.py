@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -93,7 +94,7 @@ def assessment(score, level):
 
 
 def main():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn:

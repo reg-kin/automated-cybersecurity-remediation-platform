@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -609,8 +610,8 @@ def test_scheduler_skip_locked_concurrency(conn):
             next_run_at=None,
         )
 
-    conn_a = psycopg2.connect(**PG)
-    conn_b = psycopg2.connect(**PG)
+    conn_a = smoke_connect(**PG)
+    conn_b = smoke_connect(**PG)
 
     try:
         selected_a = _load_next_uninitialised_policy(conn_a)
@@ -692,8 +693,8 @@ def test_scheduler_skip_locked_concurrency(conn):
             next_run_at=due_2,
         )
 
-    conn_a = psycopg2.connect(**PG)
-    conn_b = psycopg2.connect(**PG)
+    conn_a = smoke_connect(**PG)
+    conn_b = smoke_connect(**PG)
 
     try:
         selected_a = _load_next_due_policy(conn_a)
@@ -725,7 +726,7 @@ def test_scheduler_skip_locked_concurrency(conn):
 
 
 def main():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         test_policy_initialisation(conn)

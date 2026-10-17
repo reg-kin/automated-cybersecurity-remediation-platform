@@ -137,8 +137,30 @@ uses local `psql` and standard libpq connection/authentication variables; the Py
 database regressions use the same PGHOST/PGPORT and a generated temporary role.
 The default `SMOKE_PG_MODE=docker` retains `PG_CONTAINER=portal-datastore` and
 `PG_USER=telemetry_admin`. Docker and Compose are not required in native mode.
-Both modes retain the same SQL reconstruction and database assertions. TEST_DB
-must use the `automated_remediation_release_smoke_test` name or that prefix followed
-by an underscore suffix; an existing database is refused. Cleanup drops only the
-database and role successfully created by that invocation. Do not use a production
-server for smoke validation.
+Both modes retain the same SQL reconstruction and database assertions. A random
+invocation suffix is appended to TEST_DB (default prefix
+`automated_remediation_release_smoke_test`); the resulting identifier must fit
+PostgreSQL's 63-byte identifier limit (42 ASCII bytes for the prefix plus
+the underscore and 20 hexadecimal suffix bytes). Roles also use a random
+invocation identifier.
+Endpoints must be a single TCP host and numeric port. Service overrides,
+PGHOSTADDR, PGOPTIONS, authentication-mechanism overrides and connection
+strings are refused; password files, TLS settings and SCRAM remain supported.
+Administrative psql uses `-w`
+(no password prompts), `-X`, explicit endpoints and a five-second connection
+timeout. Docker administrative SQL uses container TCP port 5432; PGHOST/PGPORT
+must reach that same server from the host for Python tests. Authentication must
+already be configured privately; the smoke test does not provision credentials.
+
+Python regressions require explicit disposable-database confirmation and compare
+the database OID and fresh 20-hex invocation marker with administrative SQL
+before mutation. Native mode also requires matching server address and port.
+Docker mode allows NAT to change the observed address/port; matching loopback
+addresses alone never establish endpoint equivalence. Cleanup retains the role
+whenever its database has not been safely removed.
+Cleanup requires acknowledged creation and matching recorded OIDs and
+invocation markers. Failed or ambiguous CREATE outcomes are left for manual
+review, even if creation actually committed. Cleanup errors produce a failing
+exit status and recovery identifiers. Cleanup is best effort, not a guarantee;
+retain the reported identifiers and inspect ownership before manual recovery.
+Do not use a production server for smoke validation.

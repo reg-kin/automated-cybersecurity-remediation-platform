@@ -6,6 +6,7 @@ import os
 import sys
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 
 
 REPO_ROOT = os.path.dirname(
@@ -40,7 +41,7 @@ def connect():
     if PG_PASSWORD:
         kwargs["password"] = PG_PASSWORD
 
-    return psycopg2.connect(**kwargs)
+    return smoke_connect(**kwargs)
 
 
 def clean_test_assets(conn):

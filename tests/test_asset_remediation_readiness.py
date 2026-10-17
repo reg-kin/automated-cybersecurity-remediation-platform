@@ -5,6 +5,7 @@
 import os
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 from psycopg2 import errors
 
 
@@ -60,7 +61,7 @@ def create_provisional_asset(conn, canonical_name):
         return cur.fetchone()[0]
 
 def main():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn:

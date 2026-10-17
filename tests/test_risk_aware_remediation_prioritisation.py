@@ -5,6 +5,7 @@
 import os
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 
 
 PG = {
@@ -162,7 +163,7 @@ def fetch_prioritised_ids(conn):
 
 
 def main():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn:
