@@ -519,9 +519,6 @@ BEGIN
         lifecycle_status =
             'IN_REMEDIATION',
 
-        remediation_attempts =
-            remediation_attempts + 1,
-
         last_error =
             NULL,
 

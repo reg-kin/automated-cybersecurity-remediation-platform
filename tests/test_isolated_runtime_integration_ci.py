@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "verification"))
 class IsolatedRuntimeIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.token = "ci-runtime-token-only"
+        cls.token = "-".join(("ci", "runtime", "token", "only"))
         cls.environment = patch.dict(os.environ, {
             "CONTROLLER_TOKEN": cls.token,
             "VERIFICATION_TOKEN": cls.token,

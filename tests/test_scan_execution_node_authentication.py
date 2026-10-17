@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import psycopg2
+from smoke_database_guard import connect as smoke_connect
 from psycopg2.errors import CheckViolation
 
 
@@ -83,7 +84,7 @@ def passed(message):
 
 
 def main():
-    conn = psycopg2.connect(**PG)
+    conn = smoke_connect(**PG)
 
     try:
         with conn:

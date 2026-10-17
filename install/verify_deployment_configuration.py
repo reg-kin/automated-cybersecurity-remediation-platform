@@ -10,7 +10,7 @@ import re
 import stat
 from pathlib import Path
 
-from install_application import ENVIRONMENT_FILE_TEMPLATES
+from install_application import environment_templates
 
 MANDATORY = {
     "/etc/readiness-admin-api.env": ("PG_USER", "PG_PASSWORD", "READINESS_ADMIN_TOKEN", "READINESS_ADMIN_PRINCIPAL"),
@@ -22,16 +22,25 @@ MANDATORY = {
 }
 
 
-def verify_deployment_configuration(destinations, *, uid, gid):
+NATIVE_MANDATORY = {
+    "/etc/ansible-runner.env": ("ANSIBLE_RUNNER_TOKEN", "ALLOWED_PLAYBOOKS", "ANSIBLE_PLAYBOOK_DIR", "ANSIBLE_RUNNER_HOST", "ANSIBLE_RUNNER_PORT"),
+    "/etc/verification-gateway.env": ("VERIFICATION_TOKEN", "VERIFICATION_HOST", "VERIFICATION_PORT"),
+}
+
+
+def verify_deployment_configuration(destinations, *, uid, gid, native=False):
     """Validate configured secrets and ownership without revealing their contents.
 
     This is a necessary prerequisite, not proof of credential validity or
     permission to activate systemd services.
     """
-    if set(destinations) != set(ENVIRONMENT_FILE_TEMPLATES):
+    templates = environment_templates(native=native)
+    mandatory = {**MANDATORY, **(NATIVE_MANDATORY if native else {})}
+    if set(destinations) != set(templates):
         raise RuntimeError("Incomplete deployment configuration inventory.")
-    if set(MANDATORY) != set(ENVIRONMENT_FILE_TEMPLATES):
+    if set(mandatory) != set(templates):
         raise RuntimeError("Configuration schema does not match template inventory.")
+    configurations = {}
     for canonical, location in destinations.items():
         path = Path(location)
         if not path.is_absolute():
@@ -60,10 +69,31 @@ def verify_deployment_configuration(destinations, *, uid, gid):
             if key in values:
                 raise RuntimeError(f"Duplicate configuration key: {canonical}/{key}")
             values[key] = value.strip()
-        for key in MANDATORY[canonical]:
+        for key in mandatory[canonical]:
             value = values.get(key, "")
             if not value or "CHANGE_ME" in value.upper():
                 raise RuntimeError(f"Missing deployment setting: {canonical}/{key}")
+        configurations[canonical] = values
         if values.get("TEST_SKIP_STAGE2", "false").lower() != "false":
             raise RuntimeError("Stage 2 verification bypass must be disabled.")
+    if native:
+        from urllib.parse import urlsplit
+        controller = configurations["/etc/remediation-controller.env"]
+        for file, prefix, url_key, endpoint in (
+            ("/etc/ansible-runner.env", "ANSIBLE_RUNNER", "ANSIBLE_RUNNER_URL", "/run"),
+            ("/etc/verification-gateway.env", "VERIFICATION", "VERIFICATION_URL", "/verify"),
+        ):
+            server = configurations[file]
+            try:
+                port = int(server[prefix + "_PORT"])
+                url = urlsplit(controller.get(url_key, ""))
+                valid = (1 <= port <= 65535 and url.scheme == "http"
+                         and url.hostname == server[prefix + "_HOST"]
+                         and url.port == port and url.path == endpoint)
+            except ValueError:
+                valid = False
+            if not valid:
+                raise RuntimeError(f"Native endpoint mismatch: {url_key}")
+            if controller[prefix + "_TOKEN"] != server[prefix + "_TOKEN"]:
+                raise RuntimeError(f"Native authentication mismatch: {prefix}")
     return {"configured_files": len(destinations), "activation_authorized": False}

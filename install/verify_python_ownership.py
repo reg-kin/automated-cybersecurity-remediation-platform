@@ -12,7 +12,7 @@ from pathlib import Path
 from venv_link_safety import validate_venv_interpreter_link, validate_venv_library_link
 
 
-def verify_python_environment(application):
+def verify_python_environment(application, *, native=False):
     """Verify essential venv artifacts; not a substitute for package integrity."""
     app = Path(application)
     if not app.is_absolute() or app.is_symlink():
@@ -32,7 +32,13 @@ def verify_python_environment(application):
     if requirements.is_symlink() or not requirements.is_file():
         raise RuntimeError("Missing safe pinned requirements.")
     expected = {}
-    for line in requirements.read_text().splitlines():
+    lines = requirements.read_text().splitlines()
+    if native:
+        extra = app / "deployment/requirements-native.txt"
+        if extra.is_symlink() or not extra.is_file():
+            raise RuntimeError("Missing safe native requirements.")
+        lines += extra.read_text().splitlines()
+    for line in lines:
         match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9_.-]*)==([A-Za-z0-9][A-Za-z0-9_.+!-]*)", line.strip())
         if match is None:
             raise RuntimeError("Invalid pinned requirement.")

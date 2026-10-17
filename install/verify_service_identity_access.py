@@ -7,7 +7,7 @@ import os
 import stat
 from pathlib import Path
 
-from install_application import ENVIRONMENT_FILE_TEMPLATES
+from install_application import environment_templates
 from service_provisioning import inspect_service_provisioning
 
 
@@ -44,17 +44,17 @@ def _can_execute(meta, uid, gid):
     return _permission(meta, uid, gid, stat.S_IXUSR, stat.S_IXGRP, stat.S_IXOTH)
 
 
-def verify_service_identity_access(application, environment_destinations, *, uid, gid):
+def verify_service_identity_access(application, environment_destinations, *, uid, gid, native=False):
     """Check staged files can be read/traversed by uid/gid, not only owned.
 
     This is a static POSIX mode check; ACLs, LSM policies, supplemental
-    groups, parent directories outside the app and actual execution must
+    groups and actual execution must
     still be verified on the target host.
     """
     app = Path(application)
     if not app.is_absolute() or app.is_symlink():
         raise RuntimeError("Unsafe staged application path.")
-    if set(environment_destinations) != set(ENVIRONMENT_FILE_TEMPLATES):
+    if set(environment_destinations) != set(environment_templates(native=native)):
         raise RuntimeError("Incomplete service environment inventory.")
     _verify_path_traversal(app, uid, gid)
     root = app.lstat()
@@ -65,17 +65,46 @@ def verify_service_identity_access(application, environment_destinations, *, uid
         app / "venv" / "pyvenv.cfg",
         app / "venv" / "bin" / "python",
     ]
-    required.extend(app / "deployment" / "systemd" / name for name in
-                    inspect_service_provisioning(app)["unit_names"])
+    if native:
+        required.extend(app / name for name in (
+            "deployment/requirements-native.txt", "ansible-runner/server.py",
+            "verification/verification_gateway.py", "remediation/controller_api.py",
+            "remediation/dispatcher.py", "remediation/deferred_reconciler.py",
+            "readiness_management/api.py", "scan_policy_administration/api.py",
+            "scan_coordination/scheduler_runner.py", "venv/bin/gunicorn",
+            "venv/bin/ansible", "venv/bin/ansible-playbook", "venv/bin/rq",
+        ))
+        for name in ("ansible-runner", "verification", "worker", "ansible/playbooks", "ansible/roles"):
+            directory = app / name
+            _verify_path_traversal(directory, uid, gid)
+            meta = directory.stat()
+            if not stat.S_ISDIR(meta.st_mode) or not _can_read(meta, uid, gid) or not _can_traverse(meta, uid, gid):
+                raise RuntimeError(f"Service account cannot access working directory: {directory}")
+        playbooks = list((app / "ansible/playbooks").glob("*.yml"))
+        roles = list((app / "ansible/roles").glob("*/tasks/main.yml"))
+        if not playbooks or not roles:
+            raise RuntimeError("Missing runtime playbooks or roles.")
+        for name in ("os_patching", "cis_hardening", "file_integrity", "service_config",
+                     "container_image", "web_application", "security_incident"):
+            required.extend((app / f"ansible/playbooks/{name}.yml",
+                             app / f"ansible/roles/{name}/tasks/main.yml"))
+        required.extend(playbooks)
+        required.extend(path for path in (app / "ansible/roles").rglob("*") if path.is_file())
+    for name in inspect_service_provisioning(app, native=native)["unit_names"]:
+        directory = app / "deployment/systemd"
+        if name in ("ansible-runner.service", "verification-gateway.service"):
+            directory /= "native"
+        required.append(directory / name)
     for path in required:
         _verify_path_traversal(path, uid, gid)
         if not path.exists():
             raise RuntimeError(f"Missing runtime prerequisite: {path}")
+        _verify_path_traversal(path.resolve(strict=True), uid, gid)
         meta = path.stat()
         if not stat.S_ISREG(meta.st_mode) or not _can_read(meta, uid, gid):
             raise RuntimeError(f"Service account cannot read prerequisite: {path}")
-        if path == app / "venv" / "bin" / "python" and not _can_execute(meta, uid, gid):
-            raise RuntimeError("Service account cannot execute Python interpreter.")
+        if path.parent == app / "venv/bin" and not _can_execute(meta, uid, gid):
+            raise RuntimeError("Service account cannot execute runtime executable.")
     for canonical, location in environment_destinations.items():
         path = Path(location)
         _verify_path_traversal(path, uid, gid)

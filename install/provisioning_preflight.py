@@ -8,11 +8,11 @@ import re
 import stat
 from pathlib import Path
 
-from install_application import ENVIRONMENT_FILE_TEMPLATES
+from install_application import environment_templates
 from service_provisioning import inspect_service_provisioning
 
 
-def preflight_provisioning(application, unit_destination, environment_destinations):
+def preflight_provisioning(application, unit_destination, environment_destinations, *, native=False):
     """Inspect all provisioning targets before any privileged write.
 
     This is not a transaction: it is a prerequisite inventory. Revalidate
@@ -28,21 +28,28 @@ def preflight_provisioning(application, unit_destination, environment_destinatio
             raise RuntimeError("Application directory owner or mode unsafe.")
     finally:
         os.close(app_fd)
-    inventory = inspect_service_provisioning(application)
+    inventory = inspect_service_provisioning(application, native=native)
     requirements = application / "requirements.txt"
-    req_fd = os.open(requirements, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    try:
-        if not stat.S_ISREG(os.fstat(req_fd).st_mode):
-            raise RuntimeError("Unsafe requirements file.")
-        with os.fdopen(req_fd, "r", closefd=False) as stream:
-            lines = stream.read().splitlines()
-    finally:
-        os.close(req_fd)
-    if not lines or any(not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9_.-]*==[A-Za-z0-9][A-Za-z0-9_.+!-]*",
-        line.strip()) for line in lines):
-        raise RuntimeError("Requirements must be explicitly pinned.")
-    if set(environment_destinations) != set(ENVIRONMENT_FILE_TEMPLATES):
+    requirement_files = [requirements]
+    if native:
+        requirement_files.append(application / "deployment/requirements-native.txt")
+    all_lines = []
+    for requirements in requirement_files:
+        req_fd = os.open(requirements, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(req_fd).st_mode):
+                raise RuntimeError("Unsafe requirements file.")
+            with os.fdopen(req_fd, "r", closefd=False) as stream:
+                lines = stream.read().splitlines()
+        finally:
+            os.close(req_fd)
+        if not lines or any(not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.-]*==[A-Za-z0-9][A-Za-z0-9_.+!-]*",
+            line.strip()) for line in lines):
+            raise RuntimeError("Requirements must be explicitly pinned.")
+        all_lines.extend(lines)
+    lines = all_lines
+    if set(environment_destinations) != set(environment_templates(native=native)):
         raise RuntimeError("Environment destination mapping must be complete.")
     targets = [Path(unit_destination)] + [Path(p) for p in environment_destinations.values()]
     if any(not path.is_absolute() for path in targets):

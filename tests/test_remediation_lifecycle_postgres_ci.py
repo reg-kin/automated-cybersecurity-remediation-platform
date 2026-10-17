@@ -109,6 +109,11 @@ class CancellationPostgresIntegration(unittest.TestCase):
                 status, counted = cursor.fetchone()
                 self.assertEqual(status, "CANCELLED")
                 self.assertFalse(counted)
+                cursor.execute(
+                    "SELECT remediation_attempts FROM unified_security_findings WHERE finding_id=%s",
+                    (finding_id,),
+                )
+                self.assertEqual(cursor.fetchone()[0], 0)
                 cursor.execute("SELECT lifecycle_status FROM unified_security_findings WHERE finding_id=%s", (finding_id,))
                 self.assertEqual(cursor.fetchone()[0], "OPEN")
                 cursor.execute("SELECT count(*) FROM remediation_verifications WHERE execution_id=%s", (execution_id,))
@@ -116,11 +121,19 @@ class CancellationPostgresIntegration(unittest.TestCase):
             # Exercise real Stage 1 and Stage 2 evidence on a replacement
             # execution, without running Ansible or claiming scanner success.
             with connection.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE unified_security_findings
-                    SET lifecycle_status='IN_REMEDIATION'
-                    WHERE finding_id=%s
-                """, (finding_id,))
+                cursor.execute(
+                    "SELECT claim_finding(%s)",
+                    (finding_id,),
+                )
+                self.assertTrue(cursor.fetchone()[0])
+                cursor.execute(
+                    "SELECT lifecycle_status, remediation_attempts "
+                    "FROM unified_security_findings WHERE finding_id=%s",
+                    (finding_id,),
+                )
+                lifecycle_status, attempts = cursor.fetchone()
+                self.assertEqual(lifecycle_status, "IN_REMEDIATION")
+                self.assertEqual(attempts, 0)
                 cursor.execute("""
                     INSERT INTO remediation_executions (
                         finding_id, rule_id, capability, target_host,
@@ -134,6 +147,29 @@ class CancellationPostgresIntegration(unittest.TestCase):
                     UPDATE remediation_executions SET status='RUNNING'
                     WHERE execution_id=%s
                 """, (verification_execution_id,))
+                cursor.execute(
+                    "SELECT remediation_attempts FROM unified_security_findings "
+                    "WHERE finding_id=%s",
+                    (finding_id,),
+                )
+                self.assertEqual(cursor.fetchone()[0], 1)
+                cursor.execute(
+                    "SELECT attempt_counted FROM remediation_executions "
+                    "WHERE execution_id=%s",
+                    (verification_execution_id,),
+                )
+                self.assertTrue(cursor.fetchone()[0])
+                cursor.execute(
+                    "UPDATE remediation_executions SET status='RUNNING' "
+                    "WHERE execution_id=%s",
+                    (verification_execution_id,),
+                )
+                cursor.execute(
+                    "SELECT remediation_attempts FROM unified_security_findings "
+                    "WHERE finding_id=%s",
+                    (finding_id,),
+                )
+                self.assertEqual(cursor.fetchone()[0], 1)
             stage1 = db.begin_verification(
                 connection, finding_id, verification_execution_id,
                 1, "ANSIBLE_LOCAL", "ci-disposable",
@@ -146,6 +182,18 @@ class CancellationPostgresIntegration(unittest.TestCase):
                     UPDATE remediation_executions SET status='STAGE1_PASSED'
                     WHERE execution_id=%s
                 """, (verification_execution_id,))
+                cursor.execute(
+                    "SELECT remediation_attempts FROM unified_security_findings "
+                    "WHERE finding_id=%s",
+                    (finding_id,),
+                )
+                self.assertEqual(cursor.fetchone()[0], 1)
+                cursor.execute(
+                    "SELECT attempt_counted FROM remediation_executions "
+                    "WHERE execution_id=%s",
+                    (verification_execution_id,),
+                )
+                self.assertTrue(cursor.fetchone()[0])
             stage2 = db.begin_verification(
                 connection, finding_id, verification_execution_id,
                 2, "SCANNER", "ci-disposable",

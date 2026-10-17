@@ -11,7 +11,7 @@ from pathlib import Path
 from service_provisioning import inspect_service_provisioning
 
 
-def provision_service_units(source, destination, uid, gid):
+def provision_service_units(source, destination, uid, gid, *, native=False):
     """Copy validated service/timer manifests exclusively, preserving existing files.
 
     Destination must be a caller-owned, non-symlink directory. A pre-existing
@@ -19,7 +19,7 @@ def provision_service_units(source, destination, uid, gid):
     """
     source = Path(source).resolve(strict=True)
     destination = Path(destination)
-    inventory = inspect_service_provisioning(source)
+    inventory = inspect_service_provisioning(source, native=native)
     if not destination.is_absolute():
         raise RuntimeError("Unit destination must be absolute.")
     parent_fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -38,6 +38,8 @@ def provision_service_units(source, destination, uid, gid):
         try:
             for name in names:
                 source_path = source / "deployment/systemd" / name
+                if name in ("ansible-runner.service", "verification-gateway.service"):
+                    source_path = source / "deployment/systemd/native" / name
                 source_fd = os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
                 try:
                     source_metadata = os.fstat(source_fd)

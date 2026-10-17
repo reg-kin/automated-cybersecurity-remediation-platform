@@ -7,16 +7,26 @@ import os
 import re
 from pathlib import Path
 
-from install_application import ENVIRONMENT_FILE_TEMPLATES
+from install_application import environment_templates
 
 
-def inspect_service_provisioning(source):
+def inspect_service_provisioning(source, *, native=False):
+    templates = environment_templates(native=native)
     source = Path(source).resolve(strict=True)
     unit_dir = source / "deployment/systemd"
     if not unit_dir.is_dir() or unit_dir.is_symlink():
         raise RuntimeError("Missing trusted systemd source directory.")
     units = sorted(p for p in unit_dir.iterdir()
                    if p.suffix in (".service", ".timer"))
+    if native:
+        native_dir = unit_dir / "native"
+        if native_dir.is_symlink() or not native_dir.is_dir():
+            raise RuntimeError("Missing trusted native systemd directory.")
+        for name in ("ansible-runner.service", "verification-gateway.service"):
+            path = native_dir / name
+            if path.is_symlink() or not path.is_file():
+                raise RuntimeError(f"Missing safe native unit: {name}")
+            units.append(path)
     if not units:
         raise RuntimeError("No systemd units found.")
     unit_names = {p.name for p in units}
@@ -49,13 +59,13 @@ def inspect_service_provisioning(source):
             if target and target not in unit_names:
                 raise RuntimeError(f"Timer references missing unit: {target}")
     missing_templates = sorted(
-        name for name, template in ENVIRONMENT_FILE_TEMPLATES.items()
+        name for name, template in templates.items()
         if not (source / template).is_file()
         or (source / template).is_symlink()
     )
     if missing_templates:
         raise RuntimeError(f"Missing environment templates: {missing_templates}")
-    unknown_envs = sorted(referenced_envs - set(ENVIRONMENT_FILE_TEMPLATES))
+    unknown_envs = sorted(referenced_envs - set(templates))
     if unknown_envs:
         raise RuntimeError(f"Unprovisioned environment references: {unknown_envs}")
     timer = unit_dir / "remediation-dispatcher.timer"

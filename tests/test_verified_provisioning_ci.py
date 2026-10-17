@@ -49,8 +49,8 @@ class VerifiedProvisioningTests(unittest.TestCase):
 
     def test_post_write_verification_rejects_wrong_mode(self):
         from provision_environment import provision_environment_files
-        def wrong_mode(*args):
-            created = provision_environment_files(*args)
+        def wrong_mode(*args, **kwargs):
+            created = provision_environment_files(*args, **kwargs)
             created[0].chmod(0o600)
             return created
         with patch("verified_provisioning.provision_environment_files", side_effect=wrong_mode):

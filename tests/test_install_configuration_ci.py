@@ -91,6 +91,21 @@ class ConfigurationSafetyTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "already occupied"):
                 validate_api_port_conflicts(self.root / "source")
 
+    def test_environment_bound_controller_port_is_checked(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            env = self.systemd / "env"
+            env.mkdir()
+            (env / "remediation-controller.env.example").write_text(
+                f"CONTROLLER_HOST=127.0.0.1\nCONTROLLER_PORT={port}\n")
+            (self.systemd / "controller.service").write_text(
+                "EnvironmentFile=/etc/remediation-controller.env\n"
+                "ExecStart=/bin/example --bind ${CONTROLLER_HOST}:${CONTROLLER_PORT}\n")
+            with self.assertRaisesRegex(RuntimeError, "already occupied"):
+                validate_api_port_conflicts(self.root / "source")
+
     def test_available_api_port_is_accepted(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.bind(("127.0.0.1", 0))

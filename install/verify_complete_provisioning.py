@@ -12,7 +12,7 @@ from provisioning_journal import assert_not_deployable
 from verify_python_ownership import verify_python_environment, verify_staged_ownership
 from verified_provisioning import _verify_file
 from service_provisioning import inspect_service_provisioning
-from install_application import ENVIRONMENT_FILE_TEMPLATES
+from install_application import environment_templates
 
 
 def _verify_exact_copy(source, destination):
@@ -39,23 +39,26 @@ def _verify_exact_copy(source, destination):
 
 
 def verify_complete_provisioning(
-    journal, application, unit_destination, environment_destinations, *, uid, gid
+    journal, application, unit_destination, environment_destinations, *, uid, gid, native=False
 ):
     app = Path(application)
-    record = assert_not_deployable(journal)
+    record = assert_not_deployable(journal, native=native)
     if record["application"] != str(app):
         raise RuntimeError("Provisioning journal application mismatch.")
-    if set(environment_destinations) != set(ENVIRONMENT_FILE_TEMPLATES):
+    if set(environment_destinations) != set(environment_templates(native=native)):
         raise RuntimeError("Environment destination inventory mismatch.")
-    if verify_python_environment(app) is not True:
+    if verify_python_environment(app, native=native) is not True:
         raise RuntimeError("Python environment verification failed.")
     if verify_staged_ownership(app, uid, gid) is not True:
         raise RuntimeError("Staged application ownership verification failed.")
     for canonical, target in environment_destinations.items():
         _verify_file(target, uid=uid, gid=gid, mode=0o640)
-        _verify_exact_copy(app / ENVIRONMENT_FILE_TEMPLATES[canonical], Path(target))
-    for name in inspect_service_provisioning(app)["unit_names"]:
+        _verify_exact_copy(app / environment_templates(native=native)[canonical], Path(target))
+    for name in inspect_service_provisioning(app, native=native)["unit_names"]:
         target = Path(unit_destination) / name
         _verify_file(target, uid=uid, gid=gid, mode=0o644)
-        _verify_exact_copy(app / "deployment/systemd" / name, target)
+        directory = app / "deployment/systemd"
+        if name in ("ansible-runner.service", "verification-gateway.service"):
+            directory /= "native"
+        _verify_exact_copy(directory / name, target)
     return record

@@ -36,6 +36,11 @@ INSTALL_FILES = (
     "LICENSE",
 )
 
+# Optional so releases from revisions predating this guide remain packageable.
+OPTIONAL_INSTALL_FILES = (
+    "docs/UBUNTU_NATIVE_DEPLOYMENT.md",
+)
+
 EXCLUDED_NAMES = frozenset((
     ".git",
     ".venv",
@@ -87,6 +92,17 @@ ENVIRONMENT_FILE_TEMPLATES = {
     "/etc/scan-policy-scheduler.env":
         "deployment/systemd/env/scan-policy-scheduler.env.example",
 }
+
+
+NATIVE_ENVIRONMENT_FILE_TEMPLATES = {
+    "/etc/ansible-runner.env": "deployment/systemd/env/ansible-runner.env.example",
+    "/etc/verification-gateway.env": "deployment/systemd/env/verification-gateway.env.example",
+}
+
+
+def environment_templates(*, native=False):
+    return {**ENVIRONMENT_FILE_TEMPLATES,
+            **(NATIVE_ENVIRONMENT_FILE_TEMPLATES if native else {})}
 
 
 def should_exclude(path):
@@ -157,6 +173,17 @@ def copy_application_files(source, destination):
         if not candidate.is_file() or candidate.is_symlink():
             raise RuntimeError(f"Required installation file missing: {name}")
 
+        selected_files.append(candidate)
+
+    for name in OPTIONAL_INSTALL_FILES:
+        candidate = source / name
+        # Check parents as well as the file before following any links.
+        if any((source / parent).is_symlink()
+               for parent in Path(name).parents):
+            continue
+        if (candidate.is_symlink() or should_exclude(name)
+                or not candidate.is_file()):
+            continue
         selected_files.append(candidate)
 
     for directory_name in INSTALL_DIRECTORIES:
@@ -527,10 +554,23 @@ def validate_api_port_conflicts(source):
     bindings = set()
 
     for unit in sorted(unit_directory.glob("*.service")):
-        for line in unit.read_text().splitlines():
+        lines = unit.read_text().splitlines()
+        values = {}
+        for line in lines:
+            if line.startswith("EnvironmentFile="):
+                canonical = line.partition("=")[2].strip()
+                template = ENVIRONMENT_FILE_TEMPLATES.get(canonical)
+                if template:
+                    for setting in (Path(source) / template).read_text().splitlines():
+                        if setting and not setting.startswith("#") and "=" in setting:
+                            key, value = setting.split("=", 1)
+                            values[key] = value
+        for line in lines:
             if not line.startswith("ExecStart="):
                 continue
 
+            line = re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}",
+                          lambda match: values.get(match.group(1), match.group(0)), line)
             for address, port_text in re.findall(
                 r"--bind\s+([0-9.]+):(\d+)",
                 line,
