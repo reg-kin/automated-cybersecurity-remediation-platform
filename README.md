@@ -53,6 +53,23 @@ installation handover, **not** a complete production deployment walkthrough.
 
 ---
 
+## Release overview — v1.0.0 portfolio baseline
+
+This release presents the implemented platform as an open-source cybersecurity engineering project and practical reference for vulnerability management, Linux security and security automation training. It is a versioned software baseline, **not a claim that every integration is production-ready**.
+
+**What this project demonstrates**
+
+- **Multi-engine assessment:** scanner-specific orchestrators normalise findings into a Unified Security Finding while retaining source evidence and assigning deterministic finding classes.
+- **Controlled remediation:** PostgreSQL-backed rules, asset readiness and approval controls determine authorised remediation actions; AI enrichment does not select playbooks.
+- **Verification beyond execution:** Stage 1 confirms local remediation execution, while supported Stage 2 paths use originating scanner evidence to assess whether the finding remains.
+- **Engineering discipline:** version-controlled database migrations, isolated CI validation, release packaging, deployment safeguards and selected live remediation integration tests.
+
+**Evidence and boundaries:** Fresh PostgreSQL installation and offline provisioning have passed disposable CI checks; selected real remediation/verification workflows have been exercised separately. Full production operation across every scanner and remediation path has **not** been established. Wazuh FIM and Rootcheck orchestrators are not yet implemented.
+
+**Start here:** [Architecture](#architecture) · [Project status](docs/PROJECT_STATUS.md) · [Installation readiness](install/PRODUCTION_READINESS.md) · [Validation handover](install/VALIDATION_HANDOVER.md) · [Security policy](SECURITY.md)
+
+---
+
 ## Architecture
 
 The platform separates detection, risk contextualisation, remediation
