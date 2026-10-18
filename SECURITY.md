@@ -5,7 +5,9 @@
 Please do not report security vulnerabilities through public GitHub issues.
 
 If you discover a vulnerability affecting Automated Cybersecurity Remediation Platform,
-report it privately to the project maintainer.
+please use [GitHub private vulnerability reporting](https://github.com/reg-kin/automated-cybersecurity-remediation-platform/security/advisories/new) to submit a confidential report to the maintainers.
+
+Include the affected version or commit, a clear description, reproducible steps and potential impact where possible. Do not post exploit details publicly before coordinated disclosure.
 
 Do not include production credentials, customer information, API tokens,
 private keys, scanner credentials, or other sensitive data in a public issue.
