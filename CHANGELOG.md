@@ -17,6 +17,30 @@ The format is based on Keep a Changelog, and this project uses Semantic Versioni
 
 ### Security
 
+## [1.0.0] - Release candidate (date to be set on publication)
+
+### Release scope
+- Versioned public portfolio baseline for the implemented cybersecurity remediation platform.
+- Documentation clarifying engineering achievements, installation boundaries and operational limitations.
+- No new production activation or claim of universal production readiness.
+
+### Capabilities included
+- Unified Security Finding model, deterministic finding-class assignment and 43-class remediation catalogue.
+- OpenVAS, Nmap NSE, Nuclei, Lynis, Trivy, Wazuh SCA and Wazuh Vulnerability Detection orchestrators.
+- Asset management, contextual risk assessment, remediation readiness and scan coordination.
+- Approval-aware Ansible remediation with immediate and deferred two-stage verification.
+- PostgreSQL migration tooling, isolated installation/provisioning checks and release packaging.
+
+### Validation summary
+- Fresh PostgreSQL installation and offline staged provisioning validated in disposable CI.
+- Existing selected live remediation and scanner verification evidence retained; no new live validation implied.
+- End-to-end operational acceptance across all scanner and remediation capabilities is not claimed.
+
+### Known limitations
+- Deployment-specific configuration, external scanners and service activation require operator setup.
+- Wazuh FIM and Rootcheck orchestrators are not implemented.
+- Refer to README, docs/PROJECT_STATUS.md and install/PRODUCTION_READINESS.md for current support boundaries.
+
 ## [0.1.0] - 2026-09-02
 
 ### Added
